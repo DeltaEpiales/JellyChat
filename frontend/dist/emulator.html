@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JellyChat Emulator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #game {
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="game"></div>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const core = urlParams.get('core');
+        const romUrl = urlParams.get('url');
+
+        if (core && romUrl) {
+            window.EJS_player = '#game';
+            window.EJS_core = core;
+            window.EJS_gameUrl = romUrl;
+            window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+            window.EJS_netplayUrl = 'wss://netplay.emulatorjs.org';
+            
+            const script = document.createElement('script');
+            script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+            document.body.appendChild(script);
+        } else {
+            document.body.innerHTML = '<h2 style="color:white; text-align:center; font-family:sans-serif;">Missing core or ROM URL</h2>';
+        }
+    </script>
+</body>
+</html>

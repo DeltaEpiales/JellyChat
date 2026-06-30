@@ -1,0 +1,180 @@
+import React, { useState, useEffect } from 'react';
+import { X, Shield, Plus } from 'lucide-react';
+
+interface Profile {
+    id: string;
+    name: string;
+    avatar: string;
+    isAdmin: number;
+}
+
+interface DeviceAssignment {
+    ip: string;
+    profileId: string;
+}
+
+interface Props {
+    onClose: () => void;
+}
+
+export function AdminManagementModal({ onClose }: Props) {
+    const [profiles, setProfiles] = useState<Profile[]>([]);
+    const [assignments, setAssignments] = useState<DeviceAssignment[]>([]);
+    const [newProfileName, setNewProfileName] = useState('');
+    const [newProfileAvatar, setNewProfileAvatar] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        try {
+            const [profRes, assignRes] = await Promise.all([
+                fetch('/api/profiles'),
+                fetch('/api/assignments')
+            ]);
+            setProfiles(await profRes.json());
+            setAssignments(await assignRes.json());
+        } catch (e) {
+            console.error('Failed to fetch admin data', e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleCreateProfile = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newProfileName) return;
+        
+        const id = 'user_' + Date.now();
+        try {
+            const res = await fetch('/api/profiles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id,
+                    name: newProfileName,
+                    avatar: newProfileAvatar,
+                    isAdmin: false
+                })
+            });
+            if (res.ok) {
+                setNewProfileName('');
+                setNewProfileAvatar('');
+                fetchData();
+            }
+        } catch (e) {
+            console.error('Failed to create profile', e);
+        }
+    };
+
+    const handleAssignDevice = async (ip: string, profileId: string) => {
+        try {
+            await fetch('/api/assignments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip, profileId })
+            });
+            fetchData();
+        } catch (e) {
+            console.error('Failed to assign device', e);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+            <div className="bg-slate-900/90 border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Shield className="text-indigo-400" />
+                        Admin User Management
+                    </h2>
+                    <button onClick={onClose} className="p-2 text-white/50 hover:text-white rounded-lg hover:bg-white/10 transition-colors">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="p-4 overflow-y-auto flex-1 space-y-6">
+                    {isLoading ? (
+                        <div className="text-white/50 text-center py-8">Loading administration data...</div>
+                    ) : (
+                        <>
+                            {/* Device Assignments */}
+                            <div>
+                                <h3 className="text-white/80 font-medium mb-3">Known Devices</h3>
+                                <div className="space-y-2">
+                                    {assignments.map(a => (
+                                        <div key={a.ip} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-black/40 border border-white/5 rounded-xl gap-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="font-mono text-sm text-indigo-300 bg-indigo-500/20 px-2 py-1 rounded">
+                                                    {a.ip}
+                                                </div>
+                                            </div>
+                                            <select 
+                                                value={a.profileId}
+                                                onChange={(e) => handleAssignDevice(a.ip, e.target.value)}
+                                                className="bg-white/5 border border-white/10 text-white text-sm rounded-lg p-2 focus:outline-none focus:border-indigo-500"
+                                            >
+                                                {profiles.map(p => (
+                                                    <option key={p.id} value={p.id} className="bg-slate-800">{p.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Profiles Management */}
+                            <div className="border-t border-white/10 pt-6">
+                                <h3 className="text-white/80 font-medium mb-3">Profiles Database</h3>
+                                
+                                <form onSubmit={handleCreateProfile} className="flex gap-2 mb-4">
+                                    <input 
+                                        type="text"
+                                        placeholder="Display Name"
+                                        value={newProfileName}
+                                        onChange={e => setNewProfileName(e.target.value)}
+                                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/30"
+                                        required
+                                    />
+                                    <input 
+                                        type="url"
+                                        placeholder="Avatar URL (optional)"
+                                        value={newProfileAvatar}
+                                        onChange={e => setNewProfileAvatar(e.target.value)}
+                                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/30"
+                                    />
+                                    <button type="submit" className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+                                        <Plus size={18} /> Add
+                                    </button>
+                                </form>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {profiles.map(p => (
+                                        <div key={p.id} className="flex items-center gap-3 p-3 bg-black/40 border border-white/5 rounded-xl">
+                                            {p.avatar ? (
+                                                <img src={p.avatar} alt="" className="w-8 h-8 rounded-full object-cover" />
+                                            ) : (
+                                                <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-bold">
+                                                    {p.name.charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-white text-sm font-medium truncate flex items-center gap-2">
+                                                    {p.name}
+                                                    {p.isAdmin === 1 && <Shield size={12} className="text-yellow-400" />}
+                                                </div>
+                                                <div className="text-white/40 text-xs truncate font-mono">{p.id}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}

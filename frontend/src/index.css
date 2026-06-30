@@ -1,0 +1,194 @@
+@import "tailwindcss";
+
+@theme {
+  --color-glass-surface: rgba(255, 255, 255, 0.05);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+  --color-dark-bg: #09090b;
+}
+
+html, body {
+  touch-action: pan-x pan-y;
+  overscroll-behavior-y: none;
+}
+
+:root {
+  --theme-color-1: #f43f5e;
+  --theme-color-2: #8b5cf6;
+  --theme-text-1: #fb7185;
+  --theme-text-2: #a78bfa;
+  --theme-glow-1: rgba(244, 63, 94, 0.3);
+  --theme-glow-2: rgba(139, 92, 246, 0.2);
+}
+
+.theme-ocean {
+  --theme-color-1: #0ea5e9;
+  --theme-color-2: #14b8a6;
+  --theme-text-1: #38bdf8;
+  --theme-text-2: #2dd4bf;
+  --theme-glow-1: rgba(14, 165, 233, 0.3);
+  --theme-glow-2: rgba(20, 184, 166, 0.2);
+}
+
+.theme-forest {
+  --theme-color-1: #10b981;
+  --theme-color-2: #84cc16;
+  --theme-text-1: #34d399;
+  --theme-text-2: #a3e635;
+  --theme-glow-1: rgba(16, 185, 129, 0.3);
+  --theme-glow-2: rgba(132, 204, 22, 0.2);
+}
+
+.theme-sunset {
+  --theme-color-1: #f97316;
+  --theme-color-2: #e11d48;
+  --theme-text-1: #fb923c;
+  --theme-text-2: #f43f5e;
+  --theme-glow-1: rgba(249, 115, 22, 0.3);
+  --theme-glow-2: rgba(225, 29, 72, 0.2);
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-dark-bg);
+  color: #f8fafc;
+  overflow: hidden; /* Prevent body scroll */
+}
+
+/* Super Premium Glassmorphism */
+.glass-panel {
+  background: rgba(10, 10, 15, 0.5);
+  backdrop-filter: blur(40px) saturate(150%);
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+.glow-accent {
+  box-shadow: 0 0 20px var(--theme-glow-1), 0 0 40px var(--theme-glow-2);
+}
+
+.jelly-gradient {
+  background: linear-gradient(135deg, var(--theme-color-1), var(--theme-color-2));
+}
+
+.jelly-text {
+  background: linear-gradient(135deg, var(--theme-text-1), var(--theme-text-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+  20%, 40%, 60%, 80% { transform: translateX(10px); }
+}
+
+.animate-shake {
+  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+/* Markdown Styling */
+.markdown-content p:not(:last-child) {
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content a {
+  color: #fb7185;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.markdown-content a:hover {
+  color: #fda4af;
+}
+
+.markdown-content strong {
+  font-weight: 700;
+  color: #fff;
+}
+
+.markdown-content em {
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.markdown-content ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content ol {
+  list-style-type: decimal;
+  padding-left: 1.25rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content code {
+  background-color: rgba(0, 0, 0, 0.4);
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.85em;
+  color: #cbd5e1;
+}
+
+.markdown-content pre {
+  background-color: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  overflow-x: auto;
+  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.2);
+}
+
+.markdown-content pre code {
+  background-color: transparent;
+  padding: 0;
+  color: #f8fafc;
+  font-size: 0.875em;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid rgba(255, 255, 255, 0.3);
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  font-style: italic;
+  opacity: 0.8;
+}

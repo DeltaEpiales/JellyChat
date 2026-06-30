@@ -1,0 +1,559 @@
+import { useEffect, useRef, useState } from 'react';
+import { Socket } from 'socket.io-client';
+import { Mic, MicOff, Headphones, PhoneOff, MonitorUp, Video, VideoOff } from 'lucide-react';
+
+export interface VoiceUser {
+    socketId: string;
+    ip: string;
+    name: string;
+    profileId: string | null;
+}
+
+interface Props {
+    socket: Socket | null;
+    channelId: string | null;
+    channelName: string;
+    profiles: any[];
+    onDisconnect: () => void;
+}
+
+export function VoiceChannelManager({ socket, channelId, channelName, profiles, onDisconnect }: Props) {
+    const [connectedUsers, setConnectedUsers] = useState<VoiceUser[]>([]);
+    const [isMuted, setIsMuted] = useState(false);
+    const [isDeafened, setIsDeafened] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [isWebcamOn, setIsWebcamOn] = useState(false);
+    const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+    const [focusedStreamId, setFocusedStreamId] = useState<string | null>(null);
+
+    const handleStreamClick = (e: React.MouseEvent<HTMLDivElement>, id: string) => {
+        const videoEl = e.currentTarget.querySelector('video');
+        if (videoEl) {
+            if (videoEl.requestFullscreen) {
+                videoEl.requestFullscreen().catch(() => setFocusedStreamId(focusedStreamId === id ? null : id));
+            } else if ((videoEl as any).webkitEnterFullscreen) {
+                (videoEl as any).webkitEnterFullscreen();
+            } else {
+                setFocusedStreamId(focusedStreamId === id ? null : id);
+            }
+        } else {
+            setFocusedStreamId(focusedStreamId === id ? null : id);
+        }
+    };
+    const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+
+    const localStreamRef = useRef<MediaStream | null>(null);
+    const screenStreamRef = useRef<MediaStream | null>(null);
+    const webcamStreamRef = useRef<MediaStream | null>(null);
+    const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+    const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+    useEffect(() => {
+        if (!socket || !channelId) return;
+
+        startLocalStream().then(() => {
+            socket.emit('join_voice_channel', { channelId });
+        });
+
+        const handleUsersUpdated = ({ channelId: cid, users }: { channelId: string, users: VoiceUser[] }) => {
+            if (cid === channelId) {
+                setConnectedUsers(users);
+                const currentSocketIds = users.map(u => u.socketId);
+                for (const [peerSocketId, pc] of peerConnectionsRef.current.entries()) {
+                    if (!currentSocketIds.includes(peerSocketId)) {
+                        pc.close();
+                        peerConnectionsRef.current.delete(peerSocketId);
+                        const audio = audioElementsRef.current.get(peerSocketId);
+                        if (audio) {
+                            audio.pause();
+                            audio.srcObject = null;
+                            audioElementsRef.current.delete(peerSocketId);
+                        }
+                    }
+                }
+
+                users.forEach(async (user) => {
+                    if (socket.id && user.socketId !== socket.id && !peerConnectionsRef.current.has(user.socketId)) {
+                        if (socket.id > user.socketId) {
+                            createPeerConnection(user.socketId);
+                            // Initial offer will be created by onnegotiationneeded
+                        }
+                    }
+                });
+            }
+        };
+
+        const handleVoiceSignal = async (data: any) => {
+            const { fromId, type, payload } = data;
+            
+            if (type === 'offer') {
+                const pc = createPeerConnection(fromId);
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                socket.emit('voice_signal', {
+                    toId: fromId,
+                    type: 'answer',
+                    payload: answer
+                });
+            } else if (type === 'answer') {
+                const pc = peerConnectionsRef.current.get(fromId);
+                if (pc) {
+                    await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                }
+            } else if (type === 'ice_candidate') {
+                const pc = peerConnectionsRef.current.get(fromId);
+                if (pc) {
+                    await pc.addIceCandidate(new RTCIceCandidate(payload));
+                }
+            }
+        };
+
+        socket.on('voice_users_updated', handleUsersUpdated);
+        socket.on('voice_signal', handleVoiceSignal);
+
+        return () => {
+            socket.off('voice_users_updated', handleUsersUpdated);
+            socket.off('voice_signal', handleVoiceSignal);
+            socket.emit('leave_voice_channel', { channelId });
+            cleanup();
+        };
+    }, [socket, channelId]);
+
+    const startLocalStream = async () => {
+        try {
+            if (!localStreamRef.current) {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localStreamRef.current = stream;
+            }
+        } catch (e) {
+            console.error("Failed to get local audio", e);
+        }
+    };
+
+    const cleanup = () => {
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(t => t.stop());
+            localStreamRef.current = null;
+        }
+        if (webcamStreamRef.current) {
+            webcamStreamRef.current.getTracks().forEach(t => t.stop());
+            webcamStreamRef.current = null;
+        }
+        if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(t => t.stop());
+            screenStreamRef.current = null;
+        }
+        for (const pc of peerConnectionsRef.current.values()) {
+            pc.close();
+        }
+        peerConnectionsRef.current.clear();
+        for (const audio of audioElementsRef.current.values()) {
+            audio.pause();
+            audio.srcObject = null;
+        }
+        audioElementsRef.current.clear();
+        setConnectedUsers([]);
+        setIsStreaming(false);
+        setIsWebcamOn(false);
+    };
+
+    const createPeerConnection = (targetSocketId: string) => {
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        
+        peerConnectionsRef.current.set(targetSocketId, pc);
+
+        pc.onnegotiationneeded = async () => {
+            try {
+                if (pc.signalingState !== 'stable') return;
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                if (socket) {
+                    socket.emit('voice_signal', {
+                        toId: targetSocketId,
+                        type: 'offer',
+                        payload: pc.localDescription
+                    });
+                }
+            } catch (e) {
+                console.error('Error during negotiation:', e);
+            }
+        };
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate && socket) {
+                socket.emit('voice_signal', {
+                    toId: targetSocketId,
+                    type: 'ice_candidate',
+                    payload: event.candidate
+                });
+            }
+        };
+
+        pc.ontrack = (event) => {
+            if (event.streams[0]) {
+                const stream = event.streams[0];
+                
+                if (event.track.kind === 'audio') {
+                    let audio = audioElementsRef.current.get(targetSocketId);
+                    if (!audio) {
+                        audio = new Audio();
+                        audio.autoplay = true;
+                        audioElementsRef.current.set(targetSocketId, audio);
+                    }
+                    audio.srcObject = stream;
+                }
+                
+                // Add stream to state to render in UI
+                setRemoteStreams(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(targetSocketId, stream);
+                    return newMap;
+                });
+                
+                stream.onremovetrack = () => {
+                    if (stream.getTracks().length === 0) {
+                        setRemoteStreams(prev => {
+                            const newMap = new Map(prev);
+                            newMap.delete(targetSocketId);
+                            return newMap;
+                        });
+                    } else {
+                        // force update
+                        setRemoteStreams(prev => new Map(prev));
+                    }
+                };
+            }
+        };
+
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => {
+                if (localStreamRef.current) pc.addTrack(track, localStreamRef.current);
+            });
+        }
+        
+        if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(track => {
+                if (screenStreamRef.current) pc.addTrack(track, screenStreamRef.current);
+            });
+        }
+
+        if (webcamStreamRef.current) {
+            webcamStreamRef.current.getTracks().forEach(track => {
+                if (webcamStreamRef.current) pc.addTrack(track, webcamStreamRef.current);
+            });
+        }
+
+        return pc;
+    };
+
+    const toggleMute = () => {
+        if (localStreamRef.current) {
+            localStreamRef.current.getAudioTracks().forEach(t => {
+                t.enabled = !t.enabled;
+            });
+            setIsMuted(!localStreamRef.current.getAudioTracks()[0]?.enabled);
+        }
+    };
+
+    const toggleDeafen = () => {
+        setIsDeafened(!isDeafened);
+        for (const audio of audioElementsRef.current.values()) {
+            audio.muted = !isDeafened;
+        }
+    };
+
+    const startScreenShare = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            screenStreamRef.current = stream;
+            
+            for (const pc of peerConnectionsRef.current.values()) {
+                stream.getTracks().forEach(track => pc.addTrack(track, stream));
+            }
+            
+            setIsStreaming(true);
+            
+            stream.getVideoTracks()[0].onended = () => {
+                stopScreenShare();
+            };
+        } catch (e) {
+            console.error("Screen share failed", e);
+        }
+    };
+
+    const toggleScreenShare = () => {
+        if (isStreaming) {
+            stopScreenShare();
+        } else {
+            startScreenShare();
+        }
+    };
+
+    const startWebcamShare = async (mode = facingMode) => {
+        try {
+            if (webcamStreamRef.current) {
+                stopWebcamShare(); // Stop previous stream when flipping
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode } });
+            webcamStreamRef.current = stream;
+            
+            for (const pc of peerConnectionsRef.current.values()) {
+                stream.getTracks().forEach(track => pc.addTrack(track, stream));
+                
+                // Negotiate again if needed, but adding a track might not automatically trigger onnegotiationneeded 
+                // in all browsers if we removed one previously. However, for a simple toggle, this works.
+                // We will emit renegotiate just in case:
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                if (socket) {
+                    socket.emit('voice_signal', {
+                        toId: Array.from(peerConnectionsRef.current.entries()).find(entry => entry[1] === pc)?.[0],
+                        type: 'offer',
+                        payload: pc.localDescription
+                    });
+                }
+            }
+            
+            setIsWebcamOn(true);
+            setFacingMode(mode);
+        } catch (e) {
+            console.error("Webcam share failed", e);
+        }
+    };
+
+    const stopWebcamShare = () => {
+        if (webcamStreamRef.current) {
+            webcamStreamRef.current.getTracks().forEach(track => {
+                track.stop();
+                for (const pc of peerConnectionsRef.current.values()) {
+                    const sender = pc.getSenders().find(s => s.track === track);
+                    if (sender) pc.removeTrack(sender);
+                }
+            });
+            webcamStreamRef.current = null;
+        }
+        setIsWebcamOn(false);
+    };
+
+    const toggleWebcam = () => {
+        if (isWebcamOn) {
+            stopWebcamShare();
+        } else {
+            startWebcamShare(facingMode);
+        }
+    };
+
+    const flipCamera = () => {
+        const newMode = facingMode === 'user' ? 'environment' : 'user';
+        startWebcamShare(newMode);
+    };
+
+    const stopScreenShare = () => {
+        if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(t => t.stop());
+            
+            // Remove tracks from peer connections
+            for (const pc of peerConnectionsRef.current.values()) {
+                const senders = pc.getSenders();
+                screenStreamRef.current.getTracks().forEach(track => {
+                    const sender = senders.find(s => s.track === track);
+                    if (sender) pc.removeTrack(sender);
+                });
+            }
+            screenStreamRef.current = null;
+        }
+        setIsStreaming(false);
+    };
+
+    if (!channelId) return null;
+
+    return (
+        <div className="absolute bottom-0 left-0 w-full p-4 bg-[#18181b] border-t border-white/5 animate-in slide-in-from-bottom-4 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-50">
+            <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                    <span className="text-emerald-400 font-bold text-sm flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                        Voice Connected
+                    </span>
+                    <span className="text-white/50 text-xs truncate max-w-[150px]">{channelName}</span>
+                </div>
+                <div className="flex items-center gap-1.5 md:gap-2">
+                    <button onClick={toggleMute} className={`p-2 rounded-xl transition-all ${isMuted ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Mute Microphone">
+                        {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                    </button>
+                    <button onClick={toggleDeafen} className={`p-2 rounded-xl transition-all ${isDeafened ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Deafen">
+                        <Headphones size={16} className={isDeafened ? 'opacity-50' : ''} />
+                    </button>
+                    <button 
+                        onClick={toggleScreenShare}
+                        className={`p-3 rounded-xl transition-colors ${isStreaming ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}
+                    >
+                        <MonitorUp size={20} />
+                    </button>
+                    <button 
+                        onClick={toggleWebcam}
+                        className={`p-3 rounded-xl transition-colors ${isWebcamOn ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}
+                        title="Toggle Webcam"
+                    >
+                        {isWebcamOn ? <Video size={20} /> : <VideoOff size={20} />}
+                    </button>
+                    {isWebcamOn && (
+                        <button 
+                            onClick={flipCamera}
+                            className="p-3 rounded-xl transition-colors bg-white/5 hover:bg-white/10 text-white/70 md:hidden"
+                            title="Flip Camera"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                        </button>
+                    )}
+                    <button onClick={onDisconnect} className="p-2 rounded-xl bg-rose-500/20 text-rose-400 hover:bg-rose-500/40 transition-all" title="Disconnect">
+                        <PhoneOff size={16} />
+                    </button>
+                </div>
+            </div>
+            
+            {(remoteStreams.size > 0 && Array.from(remoteStreams.values()).some(stream => stream.getVideoTracks().length > 0) || isStreaming || isWebcamOn) && (
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                    {Array.from(remoteStreams.entries()).map(([socketId, stream]) => {
+                        const user = connectedUsers.find(u => u.socketId === socketId);
+                        const profile = user?.profileId ? profiles.find(p => p.id === user.profileId) : null;
+                        
+                        if (stream.getVideoTracks().length === 0) return null;
+                        
+                        return (
+                            <div 
+                                key={socketId} 
+                                onClick={(e) => handleStreamClick(e, socketId)}
+                                className={`relative overflow-hidden shrink-0 bg-black cursor-pointer transition-all
+                                    ${focusedStreamId === socketId 
+                                        ? 'fixed inset-0 z-[100] shadow-2xl rounded-none border-none' 
+                                        : 'w-64 h-36 rounded-lg border border-white/10'
+                                    }
+                                    ${focusedStreamId && focusedStreamId !== socketId ? 'hidden' : ''}
+                                `}
+                            >
+                                <video 
+                                    autoPlay 
+                                    playsInline 
+                                    className="w-full h-full object-contain"
+                                    ref={el => {
+                                        if (el && el.srcObject !== stream) {
+                                            el.srcObject = stream;
+                                        }
+                                    }}
+                                />
+                                {focusedStreamId === socketId && (
+                                    <button 
+                                        className="absolute top-4 right-4 bg-black/60 hover:bg-red-500 text-white p-2 rounded-full backdrop-blur transition-all"
+                                        onClick={(e) => { e.stopPropagation(); setFocusedStreamId(null); }}
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                                <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur text-[10px] px-2 py-1 rounded-md font-medium">
+                                    {profile ? profile.name : user?.name || 'Unknown'} is streaming
+                                </div>
+                            </div>
+                        );
+                    })}
+                    
+                    {/* Local Previews */}
+                    {isStreaming && screenStreamRef.current && (
+                        <div 
+                            onClick={(e) => handleStreamClick(e, 'local_screen')}
+                            className={`relative overflow-hidden shrink-0 bg-black cursor-pointer transition-all
+                                ${focusedStreamId === 'local_screen' 
+                                    ? 'fixed inset-0 z-[100] shadow-2xl rounded-none border-none' 
+                                    : 'w-64 h-36 rounded-lg border border-emerald-500/50'
+                                }
+                                ${focusedStreamId && focusedStreamId !== 'local_screen' ? 'hidden' : ''}
+                            `}
+                        >
+                            <video 
+                                autoPlay 
+                                playsInline 
+                                muted
+                                className="w-full h-full object-contain"
+                                ref={el => {
+                                    if (el && el.srcObject !== screenStreamRef.current) {
+                                        el.srcObject = screenStreamRef.current;
+                                    }
+                                }}
+                            />
+                            {focusedStreamId === 'local_screen' && (
+                                <button 
+                                    className="absolute top-4 right-4 bg-black/60 hover:bg-red-500 text-white p-2 rounded-full backdrop-blur transition-all"
+                                    onClick={(e) => { e.stopPropagation(); setFocusedStreamId(null); }}
+                                >
+                                    ✕
+                                </button>
+                            )}
+                            <div className="absolute bottom-2 left-2 bg-emerald-500/80 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1">
+                                <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
+                                You (Screen)
+                            </div>
+                        </div>
+                    )}
+                    
+                    {isWebcamOn && webcamStreamRef.current && (
+                        <div 
+                            onClick={(e) => handleStreamClick(e, 'local_webcam')}
+                            className={`relative overflow-hidden shrink-0 bg-black cursor-pointer transition-all
+                                ${focusedStreamId === 'local_webcam' 
+                                    ? 'fixed inset-0 z-[100] shadow-2xl rounded-none border-none' 
+                                    : 'w-64 h-36 rounded-lg border border-indigo-500/50'
+                                }
+                                ${focusedStreamId && focusedStreamId !== 'local_webcam' ? 'hidden' : ''}
+                            `}
+                        >
+                            <video 
+                                autoPlay 
+                                playsInline 
+                                muted
+                                className={`w-full h-full object-contain ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+                                ref={el => {
+                                    if (el && el.srcObject !== webcamStreamRef.current) {
+                                        el.srcObject = webcamStreamRef.current;
+                                    }
+                                }}
+                            />
+                            {focusedStreamId === 'local_webcam' && (
+                                <button 
+                                    className="absolute top-4 right-4 bg-black/60 hover:bg-red-500 text-white p-2 rounded-full backdrop-blur transition-all"
+                                    onClick={(e) => { e.stopPropagation(); setFocusedStreamId(null); }}
+                                >
+                                    ✕
+                                </button>
+                            )}
+                            <div className="absolute bottom-2 left-2 bg-indigo-500/80 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1">
+                                <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
+                                You (Camera)
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+            
+            <div className="mt-3 flex flex-wrap gap-2">
+                {connectedUsers.map(u => {
+                    const profile = u.profileId ? profiles.find(p => p.id === u.profileId) : null;
+                    return (
+                        <div key={u.socketId} className="flex items-center gap-2 bg-white/5 pr-3 pl-1 py-1 rounded-full border border-white/5">
+                            <div className="w-6 h-6 shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-[10px] font-bold overflow-hidden" title={profile ? profile.name : u.name}>
+                                {profile && profile.avatar ? (
+                                    <img src={profile.avatar} alt="avatar" className="w-full h-full object-cover rounded-full" />
+                                ) : (
+                                    (profile ? profile.name : u.name).charAt(0).toUpperCase()
+                                )}
+                            </div>
+                            <span className="text-xs text-white/80 font-medium truncate max-w-[80px]">{profile ? profile.name : u.name}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
