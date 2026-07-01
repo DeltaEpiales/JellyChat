@@ -2,6 +2,7 @@ const { exec } = require('child_process');
 
 let peerCache = {};
 let selfName = 'Local Machine';
+let selfDnsName = '';
 
 function updateTailscaleStatus() {
   const tailscaleCmd = '"C:\\Program Files\\Tailscale\\tailscale.exe" status --json';
@@ -17,6 +18,7 @@ function updateTailscaleStatus() {
       
       // Add self
       if (data.Self) {
+        selfDnsName = data.Self.DNSName ? data.Self.DNSName.replace(/\.$/, '') : '';
         selfName = data.Self.DNSName ? data.Self.DNSName.split('.')[0] : data.Self.HostName;
         const selfOS = data.Self.OS || 'Unknown';
         if (data.Self.TailscaleIPs) {
@@ -85,8 +87,13 @@ function getSelfIps() {
     return ips;
 }
 
+function getSelfDnsName() {
+    return selfDnsName;
+}
+
 module.exports = {
   getDeviceNameByIp,
   getActivePeers,
-  getSelfIps
+  getSelfIps,
+  getSelfDnsName
 };

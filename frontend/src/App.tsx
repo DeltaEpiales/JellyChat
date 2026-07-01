@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import type { ClipboardEvent } from 'react';
 import { io, Socket } from 'socket.io-client';
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
-import { Send, Sparkles, Terminal, Activity, Wifi, Paperclip, Loader2, Download, Upload, X, MessageCircle, Menu, Trash2, Monitor, Smartphone, BellRing, FileText, Mic, Square, Play, Pause, Headphones, Reply, Check, CheckCheck, Edit2, Link, Sticker, Search, Video, Phone, MoreVertical, UserPlus, Gamepad2, Users, Copy, Wand2, Plus, Image as ImageIcon, PanelLeft, PenTool, MonitorUp, Settings, Hash, Volume2, Shield } from 'lucide-react';
+import { Send, Terminal, Activity, Wifi, Paperclip, Loader2, Download, Upload, X, MessageCircle, Menu, Trash2, Monitor, Smartphone, BellRing, FileText, Mic, Square, Play, Pause, Headphones, Reply, Check, CheckCheck, Edit2, Link, Sticker, Search, Video, Phone, MoreVertical, UserPlus, Gamepad2, Users, Copy, Wand2, Plus, Image as ImageIcon, PanelLeft, PenTool, MonitorUp, Settings, Hash, Volume2, Shield, Clock, Flame, Zap, Share2, ChevronLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -13,11 +13,86 @@ import { VideoCallModal } from './components/VideoCallModal';
 import { UserSettingsModal } from './components/UserSettingsModal';
 import { ChannelSettingsModal } from './components/ChannelSettingsModal';
 import { AdminManagementModal } from './components/AdminManagementModal';
+import { ServerBrowser } from './components/ServerBrowser';
 import { GlobalSettingsModal } from './components/GlobalSettingsModal';
 import { VoiceChannelManager } from './components/VoiceChannelManager';
+import { P2PFileTransfer } from './components/P2PFileTransfer';
+import { P2PFileReceiver } from './components/P2PFileReceiver';
+import { InviteConfigModal } from './components/InviteConfigModal';
 import type { CallState } from './components/VideoCallModal';
 import { generateKeyPair, exportPublicKey, importPrivateKey, importPublicKey, deriveSharedSecret, encryptText, decryptText } from './crypto';
 
+const formatMentions = (text: string) => {
+    if (!text) return text;
+    // Replace @username with a markdown link to mention://username
+    return text.replace(/(^|\s)@([a-zA-Z0-9_-]+)/g, '$1[@$2](mention://$2)');
+};
+
+const markdownComponents = {
+    a: ({node, ...props}: any) => {
+        if (props.href?.startsWith('mention://')) {
+            const name = props.href.replace('mention://', '');
+            return (
+                <span className="inline-flex items-center px-[6px] py-[2px] rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 font-bold text-[0.9em] shadow-[0_0_10px_rgba(99,102,241,0.2)] backdrop-blur-md mx-0.5 whitespace-nowrap cursor-pointer hover:bg-indigo-500/30 transition-colors">
+                    @{name}
+                </span>
+            );
+        }
+        return <a {...props} className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer" />
+    }
+};
+
+const RenderMessage = ({ content }: { content: string }) => {
+    const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+    if (thinkMatch) {
+        const thought = thinkMatch[1];
+        const rest = content.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+        return (
+            <>
+                <details className="mb-3 bg-black/30 rounded-xl border border-white/5 overflow-hidden group">
+                    <summary 
+                        onClick={(e) => { e.preventDefault(); const details = e.currentTarget.parentElement as HTMLDetailsElement; if(details) details.open = !details.open; }}
+                        className="p-2.5 text-xs font-semibold text-white/50 cursor-pointer select-none hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"
+                    >
+                        <Terminal size={14} className="group-open:text-indigo-400 transition-colors" />
+                        Thinking Process
+                    </summary>
+                    <div className="p-3 text-sm text-white/60 italic border-t border-white/5 whitespace-pre-wrap font-mono">
+                        {thought.trim()}
+                    </div>
+                </details>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {rest}
+                </ReactMarkdown>
+            </>
+        );
+    }
+    
+    const openThinkMatch = content.match(/<think>([\s\S]*)$/);
+    if (openThinkMatch && !content.includes('</think>')) {
+        const thought = openThinkMatch[1];
+        return (
+            <details open className="mb-3 bg-black/30 rounded-xl border border-white/5 overflow-hidden group">
+                <summary 
+                    onClick={(e) => { e.preventDefault(); const details = e.currentTarget.parentElement as HTMLDetailsElement; if(details) details.open = !details.open; }}
+                    className="p-2.5 text-xs font-semibold text-white/50 cursor-pointer select-none hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"
+                >
+                    <Terminal size={14} className="text-indigo-400 animate-pulse" />
+                    Thinking Process (in progress...)
+                </summary>
+                <div className="p-3 text-sm text-white/60 italic border-t border-white/5 whitespace-pre-wrap font-mono animate-pulse">
+                    {thought.trim()}
+                </div>
+            </details>
+        );
+    }
+
+    return (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {content}
+        </ReactMarkdown>
+    );
+};
 
 interface Message {
   id: number;
@@ -42,6 +117,7 @@ export interface Me {
   ip: string;
   deviceName: string;
   isAdmin: boolean;
+  activity?: any;
   statusData?: {
     status: string;
     text: string;
@@ -241,7 +317,7 @@ function App() {
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [showAdminManagement, setShowAdminManagement] = useState(false);
 
-  const [authStatus, setAuthStatus] = useState({ isAdmin: false, isHost: false });
+  const [authStatus, setAuthStatus] = useState({ isAdmin: false, isHost: false, magicDns: '' });
 
   useEffect(() => {
       fetch('/api/auth/status')
@@ -333,15 +409,15 @@ function App() {
   const [gifs, setGifs] = useState<any[]>([]);
   const [generatedStickers, setGeneratedStickers] = useState<string[]>([]);
   const [isLoadingGifs, setIsLoadingGifs] = useState(false);
-  const [guestInviteModal, setGuestInviteModal] = useState<{key: string, text: string} | null>(null);
+  const [guestInviteModal, setGuestInviteModal] = useState<{key: string, text: string, mobileText: string, isMobileView: boolean} | null>(null);
   
   // New feature state
   const [channelSummary, setChannelSummary] = useState<{lastMessages: any[], counts: any[]}>({ lastMessages: [], counts: [] });
   const [ephemeralTtl, setEphemeralTtl] = useState<number | null>(null);
   const [showPlusTray, setShowPlusTray] = useState(false);
-  const [showTtlPicker, setShowTtlPicker] = useState(false);
+  const [showP2PTransfer, setShowP2PTransfer] = useState(false);
   const [p2pFileOffer, setP2pFileOffer] = useState<any>(null);
-  const [p2pTransferProgress, setP2pTransferProgress] = useState<number | null>(null);
+  const [showInviteConfigModal, setShowInviteConfigModal] = useState(false);
   const [myPrivateKey, setMyPrivateKey] = useState<CryptoKey | null>(null);
   const myPrivateKeyRef = useRef<CryptoKey | null>(null);
   useEffect(() => {
@@ -538,6 +614,39 @@ function App() {
   const [customStatusText, setCustomStatusText] = useState('');
   const [availableRoms, setAvailableRoms] = useState<{name: string, url: string, core: string, size: number}[]>([]);
   const [activeEmulatorUrl, setActiveEmulatorUrl] = useState<string | null>(null);
+  const [isSavingEmulator, setIsSavingEmulator] = useState(false);
+  const emulatorIframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+      const handleMessage = (e: MessageEvent) => {
+          if (e.data === 'SAVE_COMPLETE') {
+              setActiveEmulatorUrl(null);
+              setIsSavingEmulator(false);
+              if (socket) socket.emit('update_activity', null);
+          }
+      };
+      
+      window.addEventListener('message', handleMessage);
+      return () => {
+          window.removeEventListener('message', handleMessage);
+      };
+  }, [socket]);
+
+  useEffect(() => {
+      const handleClickOutside = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          // Ignore clicks inside elements we want to keep open
+          if (target.closest('.modal-content, button, input, .dropdown-menu, .context-menu')) return;
+          
+          if (showStatusPicker) setShowStatusPicker(false);
+          if (activeContextMenu !== null) setActiveContextMenu(null);
+      };
+      
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+          document.removeEventListener('mousedown', handleClickOutside);
+      };
+  }, [showStatusPicker, activeContextMenu]);
 
   useEffect(() => {
       if (gamesModalOpen) {
@@ -715,6 +824,24 @@ function App() {
     newSocket.on('sticker_added', ({ messageId, stickers }) => {
         setMessages(prev => prev.map(m => m.id === messageId ? { ...m, stickers: JSON.stringify(stickers) } : m));
     });
+
+    newSocket.on('channel_unread_summary', (data) => {
+        setChannelSummary(data);
+    });
+
+    newSocket.on('messages_pruned', (prunedIds) => {
+        setMessages(prev => prev.filter(m => !prunedIds.includes(m.id)));
+    });
+
+    newSocket.on('mimir_stream', ({ messageId, fullContent }) => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: fullContent } : m));
+    });
+
+    newSocket.on('file_offer', (data) => {
+        setP2pFileOffer(data);
+    });
+
+
     
     newSocket.on('call_offer', (data) => {
         setCallState(prev => {
@@ -734,8 +861,15 @@ function App() {
         setMessages(prev => prev.map(m => messageIds.includes(m.id) ? { ...m, status } : m));
     });
 
-    newSocket.on('message_edited', ({ messageId, newContent }) => {
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: newContent, isEdited: 1 } : m));
+    newSocket.on('message_edited', ({ messageId, newContent, type, attachmentUrl, fileName }) => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { 
+            ...m, 
+            content: newContent, 
+            isEdited: 1,
+            ...(type ? { type } : {}),
+            ...(attachmentUrl ? { attachmentUrl } : {}),
+            ...(fileName ? { fileName } : {})
+        } : m));
     });
 
     newSocket.on('message_deleted', (messageId) => {
@@ -765,6 +899,10 @@ function App() {
         }
     });
 
+    newSocket.on('channel_unread_summary', (summary) => {
+        setChannelSummary(summary);
+    });
+
     newSocket.on('status_update', ({ ip, status, text }) => {
         const statusData = { status, text };
         setPeers(prev => prev.map(p => p.ip === ip ? { ...p, statusData } : p));
@@ -792,6 +930,11 @@ function App() {
       fetch('/api/assignments')
         .then(r => r.json())
         .then(setAssignments)
+        .catch(console.error);
+        
+      fetch('/api/channel-summary')
+        .then(r => r.json())
+        .then(setChannelSummary)
         .catch(console.error);
     };
     
@@ -960,10 +1103,12 @@ function App() {
               content: finalContent,
               recipientId: activeChat,
               channelId: activeChat === null ? activeChannel : undefined,
-              replyToId: replyingTo?.id || null
+              replyToId: replyingTo?.id || null,
+              ttl: ephemeralTtl
           });
       }
       setInputText('');
+      setEphemeralTtl(null); // Reset TTL after sending
       
       // Reset textarea height
       const textarea = document.querySelector('textarea');
@@ -988,9 +1133,13 @@ function App() {
       }
   };
 
-  const generateGuestLink = async () => {
+  const generateGuestLink = async (expirySeconds: number, reusable: boolean) => {
       try {
-          const res = await fetch('/api/invite', { method: 'POST' });
+          const res = await fetch('/api/invite', { 
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ expirySeconds, reusable, ephemeral: !reusable })
+          });
           if (res.status === 501) {
               const data = await res.json();
               alert(data.error);
@@ -998,12 +1147,15 @@ function App() {
           }
           if (!res.ok) throw new Error("Failed to generate");
           const data = await res.json();
-          const inviteText = `Join my private JellyChat!\n\n1. Install Tailscale: https://tailscale.com/download\n2. Open terminal/cmd and run:\ntailscale up --authkey=${data.key}\n\n3. Open http://${meRef.current?.ip || 'me'}:4000`;
+          const hostUrl = authStatus.magicDns ? `https://${authStatus.magicDns}:5173` : `http://${meRef.current?.ip || 'me'}:5173`;
+          const desktopText = `Join my private JellyChat!\n\n1. Install Tailscale: https://tailscale.com/download\n2. Open terminal/cmd and run:\ntailscale up --authkey=${data.key}\n\n3. Open ${hostUrl}`;
+          const mobileText = `Join my private JellyChat!\n\n1. Install Tailscale from your App Store\n2. Tap the link below to authenticate:\ntailscale://authkey/${data.key}\n\n3. Open ${hostUrl} in your browser`;
           
-          setGuestInviteModal({ key: data.key, text: inviteText });
-      } catch (e) {
-          console.error(e);
-          alert("Failed to generate guest link. See frontend/backend console for details: " + e);
+          setGuestInviteModal({ key: data.key, text: desktopText, mobileText: mobileText, isMobileView: false });
+          setShowInviteConfigModal(false);
+      } catch (err) {
+          console.error(err);
+          alert("Failed to generate invite. Ensure tailscale API key is in backend .env");
       }
   };
 
@@ -1335,16 +1487,28 @@ function App() {
                   </div>
                   <button 
                       onClick={() => {
-                          setActiveEmulatorUrl(null);
-                          if (socket) socket.emit('update_activity', null);
+                          if (emulatorIframeRef.current && emulatorIframeRef.current.contentWindow) {
+                              setIsSavingEmulator(true);
+                              emulatorIframeRef.current.contentWindow.postMessage('SAVE_AND_EXIT', '*');
+                              // Fallback if the iframe doesn't respond within 3 seconds
+                              setTimeout(() => {
+                                  setActiveEmulatorUrl(null);
+                                  setIsSavingEmulator(false);
+                                  if (socket) socket.emit('update_activity', null);
+                              }, 3000);
+                          } else {
+                              setActiveEmulatorUrl(null);
+                              if (socket) socket.emit('update_activity', null);
+                          }
                       }}
-                      className="px-4 py-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded-full text-sm font-bold transition-colors"
+                      disabled={isSavingEmulator}
+                      className="px-4 py-1.5 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded-full text-sm font-bold transition-colors disabled:opacity-50"
                   >
-                      Exit Game
+                      {isSavingEmulator ? 'Saving...' : 'Exit Game'}
                   </button>
               </div>
               <div className="flex-1 w-full bg-black">
-                  <iframe src={activeEmulatorUrl} className="w-full h-full border-0" title="Emulator"></iframe>
+                  <iframe ref={emulatorIframeRef} src={activeEmulatorUrl} className="w-full h-full border-0" title="Emulator"></iframe>
               </div>
           </div>
       )}
@@ -1419,14 +1583,18 @@ function App() {
       <nav className={`${showPreservesSidebar ? 'flex absolute left-0 h-full' : 'hidden'} md:${showPreservesSidebar ? 'flex' : 'hidden'} w-16 flex-shrink-0 bg-black/90 md:bg-black/40 backdrop-blur-xl border-r border-white/5 flex-col items-center py-4 gap-3 z-[60] overflow-y-auto transition-all`}>
         {preserves.map(p => (
             <button 
-                key={p.id}
-                onClick={() => setActivePreserveId(p.id)}
-                title={p.name}
-                className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold transition-all relative group ${activePreserveId === p.id ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20 hover:text-white hover:rounded-xl'}`}
-            >
-                {p.name.charAt(0).toUpperCase()}
-                {activePreserveId === p.id && <div className="absolute -left-1 w-1 h-8 bg-white rounded-r-md"></div>}
-            </button>
+                  key={p.id}
+                  onClick={() => setActivePreserveId(p.id)}
+                  title={p.name}
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold transition-all relative group ${p.id === 'local' ? 'jelly-gradient shadow-[0_0_15px_rgba(244,63,94,0.3)]' : activePreserveId === p.id ? 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.5)]' : 'bg-white/10 text-white/50 hover:bg-white/20 hover:text-white hover:rounded-xl'}`}
+              >
+                  {p.id === 'local' ? (
+                      <img src="/icon.png" alt="Logo" className="w-[22px] h-[22px] brightness-0 drop-shadow-sm object-contain" />
+                  ) : (
+                      p.name.charAt(0).toUpperCase()
+                  )}
+                  {activePreserveId === p.id && <div className="absolute -left-1 w-1 h-8 bg-white rounded-r-md"></div>}
+              </button>
         ))}
         <button 
             onClick={() => setShowAddPreserveModal(true)}
@@ -1440,8 +1608,8 @@ function App() {
       <aside className={`fixed md:relative w-72 glass-panel border-r border-white/5 flex flex-col z-50 h-full shadow-2xl transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b border-white/5 flex items-center justify-between gap-4 relative">
           <div className="flex items-center gap-4 p-2 -ml-2 rounded-xl">
-            <div className="jelly-gradient p-2.5 rounded-xl text-white shadow-[0_0_15px_rgba(244,63,94,0.5)] flex-shrink-0">
-              <Sparkles size={22} className="drop-shadow-md" />
+            <div className="jelly-gradient p-2.5 rounded-xl shadow-[0_0_15px_rgba(244,63,94,0.4)] flex-shrink-0">
+              <img src="/icon.png" alt="Logo" className="w-[22px] h-[22px] brightness-0 drop-shadow-sm object-contain" />
             </div>
             <div className="text-left">
               <div className="flex items-center gap-2">
@@ -1486,9 +1654,20 @@ function App() {
                         onClick={() => changeChannel(channel.id)}
                         className={`flex-1 flex items-center justify-between p-2.5 rounded-xl transition-all ${activeChat === null && activeChannel === channel.id ? 'bg-white/10 shadow-inner' : 'hover:bg-white/5'}`}
                       >
-                          <div className="flex items-center gap-3">
-                              <Hash size={16} className={`${activeChat === null && activeChannel === channel.id ? 'text-white' : 'text-white/40'}`} />
-                              <span className={`font-medium ${activeChat === null && activeChannel === channel.id ? 'text-white' : 'text-white/70'}`}>{channel.name}</span>
+                          <div className="flex items-center gap-3 min-w-0">
+                              <Hash size={16} className={`flex-shrink-0 ${activeChat === null && activeChannel === channel.id ? 'text-white' : 'text-white/40'}`} />
+                              <div className="flex flex-col min-w-0 text-left">
+                                  <span className={`font-medium truncate ${activeChat === null && activeChannel === channel.id ? 'text-white' : 'text-white/70'}`}>{channel.name}</span>
+                                  {(() => {
+                                      const lastMsg = channelSummary.lastMessages.find(m => m.channelId === channel.id);
+                                      if (!lastMsg) return null;
+                                      return (
+                                          <span className="text-[10px] text-white/40 truncate">
+                                              {lastMsg.content ? lastMsg.content : (lastMsg.type === 'image' ? 'Image attachment' : 'File attachment')}
+                                          </span>
+                                      );
+                                  })()}
+                              </div>
                           </div>
                           {unreadCounts[channel.id] > 0 && (
                               <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-[0_0_8px_rgba(244,63,94,0.6)]">
@@ -1577,6 +1756,11 @@ function App() {
                   </div>
                 )})}
               </div>
+          </div>
+
+          {/* Server Browser Widget */}
+          <div className="mt-4 mb-4 flex-shrink-0">
+              <ServerBrowser />
           </div>
 
           <div>
@@ -1795,9 +1979,19 @@ function App() {
             )}
             <div className="overflow-hidden flex-1">
               <p className="text-sm font-semibold truncate text-white/90">{me?.deviceName || 'Connecting...'}</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                  <Wifi size={10} className="text-rose-400 shrink-0" />
-                  <p className="text-[11px] text-white/40 truncate font-mono">{me?.ip || 'Waiting for IP'}</p>
+              <div className="flex flex-col gap-0.5 mt-0.5">
+                  <div className="flex items-center gap-1.5">
+                      <Wifi size={10} className="text-rose-400 shrink-0" />
+                      <p className="text-[11px] text-white/40 truncate font-mono">{me?.ip || 'Waiting for IP'}</p>
+                  </div>
+                  {me?.activity && me.activity.type === 'playing' && (
+                      <div className="flex items-center gap-1.5">
+                          <Gamepad2 size={10} className="text-emerald-400 shrink-0" />
+                          <span className="text-[10px] text-emerald-400/90 font-semibold truncate flex-1">
+                              [Playing] {me.activity.details}
+                          </span>
+                      </div>
+                  )}
               </div>
             </div>
             <button 
@@ -1807,15 +2001,7 @@ function App() {
             >
                 <Settings size={18} />
             </button>
-            {me && me.isAdmin && (
-                <button
-                    onClick={() => setShowAdminManagement(true)}
-                    className="p-2 hover:bg-white/10 rounded-xl text-white/50 hover:text-indigo-400 transition-colors"
-                    title="Admin Management"
-                >
-                    <Shield size={18} />
-                </button>
-            )}
+            {/* Admin button moved to floating FAB */}
           </div>
           <div className="flex items-center gap-2 mt-3">
               {authStatus.isAdmin && (
@@ -1966,7 +2152,7 @@ function App() {
                             )}
                             
                             <button 
-                                onClick={() => { generateGuestLink(); setShowHeaderMenu(false); }}
+                                onClick={() => { setShowInviteConfigModal(true); setShowHeaderMenu(false); }}
                                 className="flex items-center gap-3 px-4 py-2.5 text-emerald-400 hover:bg-white/10 transition-colors text-sm w-full text-left font-medium border-t border-white/5 mt-1 pt-3"
                             >
                                 <Link size={16} /> Invite Guest Link
@@ -2067,6 +2253,16 @@ function App() {
                             >
                                 <Reply size={18} className="text-white/70" /> Reply
                             </button>
+                            <button 
+                                onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    navigator.clipboard.writeText(msg.content); 
+                                    setActiveContextMenu(null); 
+                                }}
+                                className="flex items-center gap-3 px-3 py-2 text-white/90 hover:bg-white/10 rounded-xl transition-colors font-medium text-sm"
+                            >
+                                <Copy size={18} className="text-white/70" /> Copy
+                            </button>
                             {isMe && msg.type === 'text' && (
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); setEditingMessage(msg); setInputText(msg.content); setActiveContextMenu(null); }}
@@ -2096,6 +2292,9 @@ function App() {
                             className="w-6 h-6 shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-xs font-bold cursor-pointer hover:bg-indigo-500/40 transition-colors overflow-hidden border border-indigo-500/20"
                         >
                             {(() => {
+                                if (msg.senderId === 'mimir') {
+                                    return <img src="/ai_pfp.gif" alt="Mimir" className="w-full h-full object-cover" />;
+                                }
                                 const assignment = assignments.find(a => a.ip === msg.senderId);
                                 const profile = assignment ? profiles.find(p => p.id === assignment.profileId) : null;
                                 if (profile && profile.avatar) {
@@ -2205,10 +2404,16 @@ function App() {
                               ? 'jelly-gradient text-white rounded-2xl rounded-tr-sm shadow-[0_8px_20px_-6px_rgba(244,63,94,0.4)]' 
                               : 'glass-card text-white/90 rounded-2xl rounded-tl-sm'}
                           `}>
-                            <div className="markdown-content">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {msg.content}
-                                </ReactMarkdown>
+                            <div className="markdown-content relative">
+                                {msg.senderId === 'mimir' && !msg.content ? (
+                                    <div className="flex items-center gap-1.5 py-2 px-1">
+                                        <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(129,140,248,0.8)]" style={{ animationDelay: '0ms' }} />
+                                        <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(232,121,249,0.8)]" style={{ animationDelay: '150ms' }} />
+                                        <div className="w-2 h-2 bg-rose-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(251,113,133,0.8)]" style={{ animationDelay: '300ms' }} />
+                                    </div>
+                                ) : (
+                                    <RenderMessage content={formatMentions(msg.content)} />
+                                )}
                             </div>
                             {/* Link Previews */}
                             {msg.content.match(/(https?:\/\/[^\s]+)/g)?.map((url, i) => (
@@ -2342,27 +2547,56 @@ function App() {
                   className="hidden"
                 />
                 
-                <button 
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute left-1 md:left-2 top-1/2 -translate-y-1/2 p-2 md:p-2.5 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-all z-10"
-                >
-                  <Paperclip size={20} />
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setShowGiphy(true)}
-                  className="absolute left-10 md:left-12 top-1/2 -translate-y-1/2 p-2 md:p-2.5 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-all z-10"
-                >
-                  <ImageIcon size={20} />
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setShowStickers(true)}
-                  className="absolute left-20 md:left-24 top-1/2 -translate-y-1/2 p-2 md:p-2.5 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-all z-10"
-                >
-                  <Sticker size={20} />
-                </button>
+                <div className="absolute left-1 md:left-2 flex items-center gap-1 z-20">
+                    <button 
+                        type="button"
+                        onClick={() => setShowPlusTray(!showPlusTray)}
+                        className={`p-2 rounded-xl transition-all ${showPlusTray ? 'bg-rose-500 text-white rotate-45' : 'text-white/50 hover:text-white hover:bg-white/10'}`}
+                    >
+                        <Plus size={20} />
+                    </button>
+                    
+                    {showPlusTray && (
+                        <div className="absolute bottom-full left-0 mb-2 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-2 flex flex-col gap-1 shadow-2xl animate-in fade-in slide-in-from-bottom-2 origin-bottom-left">
+                            <button type="button" onClick={() => { setShowPlusTray(false); fileInputRef.current?.click(); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-all text-sm font-medium whitespace-nowrap">
+                                <Paperclip size={18} /> File (Standard)
+                            </button>
+                            <button type="button" onClick={() => { setShowPlusTray(false); setShowP2PTransfer(true); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 text-emerald-400 transition-all text-sm font-medium whitespace-nowrap">
+                                <Zap size={18} /> P2P Large File
+                            </button>
+                            <button type="button" onClick={() => { setShowPlusTray(false); setShowStickers(true); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-all text-sm font-medium whitespace-nowrap">
+                                <Sticker size={18} /> Stickers
+                            </button>
+                            <button type="button" onClick={() => { setShowPlusTray(false); setShowAiDrawer(true); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-indigo-500/20 text-indigo-400 transition-all text-sm font-medium whitespace-nowrap">
+                                <Wand2 size={18} /> AI Tools
+                            </button>
+                            <div className="h-px bg-white/10 my-1 mx-2" />
+                            <div className="flex items-center gap-2 p-2">
+                                <Clock size={16} className={ephemeralTtl ? 'text-rose-400' : 'text-white/40'} />
+                                <select 
+                                    value={ephemeralTtl || ''} 
+                                    onChange={(e) => setEphemeralTtl(e.target.value ? parseInt(e.target.value) : null)}
+                                    className="bg-transparent text-sm font-medium text-white/80 focus:outline-none cursor-pointer"
+                                >
+                                    <option value="" className="bg-zinc-900 text-white">No Timer</option>
+                                    <option value="30" className="bg-zinc-900 text-white">30 Seconds</option>
+                                    <option value="60" className="bg-zinc-900 text-white">1 Minute</option>
+                                    <option value="300" className="bg-zinc-900 text-white">5 Minutes</option>
+                                    <option value="3600" className="bg-zinc-900 text-white">1 Hour</option>
+                                    <option value="86400" className="bg-zinc-900 text-white">24 Hours</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+
+                    <button 
+                      type="button"
+                      onClick={() => setShowGiphy(true)}
+                      className="p-2 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-all"
+                    >
+                      <ImageIcon size={20} />
+                    </button>
+                </div>
     
                 <textarea
                   value={inputText}
@@ -2372,23 +2606,18 @@ function App() {
                   disabled={isRecording}
                   rows={1}
                   placeholder={isRecording ? "Recording voice memo... Release to send!" : (activeChat === null ? "Message Global Feed..." : `Message ${activePeerName}...`)}
-                  className={`w-full min-w-0 border border-white/10 rounded-2xl pl-32 md:pl-36 pr-32 md:pr-40 py-3 md:py-4 text-[14px] md:text-[15px] text-white focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500/50 transition-all shadow-inner resize-none overflow-y-auto max-h-[150px]
+                  className={`w-full min-w-0 border ${ephemeralTtl ? 'border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.15)]' : 'border-white/10'} rounded-2xl pl-[85px] md:pl-[100px] pr-20 md:pr-24 py-3 md:py-4 text-[14px] md:text-[15px] text-white focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500/50 transition-all shadow-inner resize-none overflow-y-auto max-h-[150px]
                       ${isRecording ? 'bg-rose-500/10 placeholder-rose-300 animate-pulse' : 'bg-white/5 placeholder-white/30 focus:bg-white/10'}
                   `}
                 />
                 
+                {ephemeralTtl && (
+                    <div className="absolute top-1 right-24 md:right-28 text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                        <Flame size={10} /> Disappearing
+                    </div>
+                )}
+                
                 <div className="absolute right-1 md:right-2 flex items-center gap-1 md:gap-2">
-                    <button 
-                      type="button"
-                      onClick={() => setShowAiDrawer(true)}
-                      className="p-2 md:p-2.5 rounded-xl text-white/50 hover:text-white hover:bg-indigo-500/20 hover:text-indigo-400 transition-all z-10 relative group"
-                    >
-                      {isGeneratingSticker ? (
-                        <Loader2 size={20} className="animate-spin text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.9)]" />
-                      ) : (
-                        <Wand2 size={20} />
-                      )}
-                    </button>
                     {inputText.trim().length === 0 && (
                         <button 
                           type="button"
@@ -2603,7 +2832,6 @@ function App() {
                       )}
                   </div>
               </div>
-          </div>
       )}
 
       {/* AI Sticker Generator Modal */}
@@ -2642,7 +2870,7 @@ function App() {
                             disabled={isGeneratingSticker || !aiPrompt.trim()}
                             className="w-full px-4 py-3.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:grayscale rounded-xl text-white font-bold shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
                           >
-                              {isGeneratingSticker ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                              {isGeneratingSticker ? <Loader2 size={18} className="animate-spin" /> : <Terminal size={18} />}
                               Generate & Add
                           </button>
                       </form>
@@ -2698,9 +2926,17 @@ function App() {
                                       </span>
                                   </div>
                                   <div className="text-sm text-white/80 line-clamp-3 prose prose-invert max-w-none break-words">
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                          {msg.content}
-                                      </ReactMarkdown>
+                                      <div className="markdown-content relative">
+                                          {msg.senderId === 'mimir' && !msg.content ? (
+                                              <div className="flex items-center gap-1.5 py-2 px-1">
+                                                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(129,140,248,0.8)]" style={{ animationDelay: '0ms' }} />
+                                                  <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(232,121,249,0.8)]" style={{ animationDelay: '150ms' }} />
+                                                  <div className="w-2 h-2 bg-rose-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(251,113,133,0.8)]" style={{ animationDelay: '300ms' }} />
+                                              </div>
+                                          ) : (
+                                              <RenderMessage content={formatMentions(msg.content)} />
+                                          )}
+                                      </div>
                                   </div>
                               </div>
                           ))
@@ -2715,62 +2951,170 @@ function App() {
           </div>
       )}
       
-      {guestInviteModal && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in">
-              <div className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
-                  <button 
-                      onClick={() => setGuestInviteModal(null)}
-                      className="absolute top-4 right-4 p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-                  >
-                      <X size={20} />
-                  </button>
-                  
-                  <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                      <Users size={24} className="text-indigo-400" />
-                      Guest Invite Link
-                  </h2>
-                  
-                  <div className="flex flex-col items-center justify-center mb-6 p-4 bg-white rounded-xl">
-                      <QRCodeSVG 
-                          value={guestInviteModal.text} 
-                          size={200}
-                          bgColor={"#ffffff"}
-                          fgColor={"#000000"}
-                          level={"L"}
-                      />
-                      <p className="mt-3 text-xs text-black/60 font-medium uppercase tracking-widest">Scan to join JellyChat</p>
-                  </div>
-                  
-                  <div className="mb-4">
-                      <p className="text-sm text-white/60 mb-2">Or copy the invite instructions manually:</p>
-                      <textarea
-                          readOnly
-                          value={guestInviteModal.text}
-                          className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-sm text-white/80 font-mono resize-none focus:outline-none focus:border-indigo-500/50"
-                          onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                      />
-                  </div>
-                  
-                  <button 
-                      onClick={() => {
-                          if (navigator.clipboard && navigator.clipboard.writeText) {
-                              navigator.clipboard.writeText(guestInviteModal.text).then(() => {
-                                  alert("Copied to clipboard!");
-                              }).catch(() => {
-                                  alert("Please select the text above and copy it manually.");
-                              });
-                          } else {
-                              alert("Please select the text above and copy it manually.");
-                          }
-                      }}
-                      className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
-                  >
-                      <Copy size={18} />
-                      Copy Invite Text
-                  </button>
-              </div>
-          </div>
+      {showInviteConfigModal && (
+          <InviteConfigModal
+              onClose={() => setShowInviteConfigModal(false)}
+              onGenerate={generateGuestLink}
+          />
       )}
+      
+    {guestInviteModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                <button 
+                    onClick={() => setGuestInviteModal(null)}
+                    className="absolute top-4 right-4 p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+                >
+                    <X size={20} />
+                </button>
+                
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                    <Users size={24} className="text-indigo-400" />
+                    Guest Invite Link
+                </h2>
+
+                <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-white/5">
+                    <button 
+                        onClick={() => setGuestInviteModal({...guestInviteModal, isMobileView: false})}
+                        className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${!guestInviteModal.isMobileView ? 'bg-indigo-500 text-white' : 'text-white/50 hover:text-white'}`}
+                    >
+                        Desktop Instructions
+                    </button>
+                    <button 
+                        onClick={() => setGuestInviteModal({...guestInviteModal, isMobileView: true})}
+                        className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${guestInviteModal.isMobileView ? 'bg-indigo-500 text-white' : 'text-white/50 hover:text-white'}`}
+                    >
+                        Mobile Instructions
+                    </button>
+                </div>
+                
+                <div className="flex flex-col items-center justify-center mb-6">
+                    {guestInviteModal.isMobileView ? (
+                        <div className="flex flex-col gap-4 w-full">
+                            <p className="text-sm text-center text-white/80 font-semibold mb-2">Follow these 3 steps:</p>
+                            
+                            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                                <div className="flex flex-col items-center p-3 bg-white rounded-xl shadow-lg border-2 border-transparent hover:border-indigo-400 transition-colors group relative">
+                                    <div className="absolute -top-3 -left-3 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-md z-10">1</div>
+                                    <QRCodeSVG value="https://tailscale.com/download" size={100} bgColor="#ffffff" fgColor="#000000" level="L" />
+                                    <a href="https://tailscale.com/download" target="_blank" rel="noreferrer" className="mt-2 text-[10px] text-black/80 font-bold hover:text-indigo-600 transition-colors text-center w-full block">Get Tailscale App</a>
+                                </div>
+                                
+                                <div className="flex flex-col items-center p-3 bg-white rounded-xl shadow-lg border-2 border-transparent hover:border-emerald-400 transition-colors group relative">
+                                    <div className="absolute -top-3 -left-3 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-md z-10">2</div>
+                                    <QRCodeSVG value={`tailscale://authkey/${guestInviteModal.key}`} size={100} bgColor="#ffffff" fgColor="#000000" level="L" />
+                                    <a href={`tailscale://authkey/${guestInviteModal.key}`} className="mt-2 text-[10px] text-black/80 font-bold hover:text-emerald-600 transition-colors text-center w-full block">Auth Key (Deep Link)</a>
+                                </div>
+
+                                <div className="flex flex-col items-center p-3 bg-white rounded-xl shadow-lg border-2 border-transparent hover:border-rose-400 transition-colors group relative">
+                                    <div className="absolute -top-3 -left-3 w-6 h-6 bg-rose-500 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-md z-10">3</div>
+                                    <QRCodeSVG value={authStatus.magicDns ? `https://${authStatus.magicDns}:5173` : window.location.origin} size={100} bgColor="#ffffff" fgColor="#000000" level="L" />
+                                    <a href={authStatus.magicDns ? `https://${authStatus.magicDns}:5173` : window.location.origin} className="mt-2 text-[10px] text-black/80 font-bold hover:text-rose-600 transition-colors text-center w-full block">Open JellyChat</a>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center p-4 bg-white rounded-xl shadow-lg hover:shadow-indigo-500/20 transition-shadow">
+                            <QRCodeSVG 
+                                value={guestInviteModal.text} 
+                                size={200}
+                                bgColor={"#ffffff"}
+                                fgColor={"#000000"}
+                                level={"L"}
+                            />
+                            <p className="mt-3 text-xs text-black/60 font-bold uppercase tracking-widest">
+                                Scan to get Instructions
+                            </p>
+                        </div>
+                    )}
+                </div>
+                
+                <div className="mb-4">
+                    <p className="text-sm text-white/60 mb-2">Or copy the invite instructions manually:</p>
+                    <textarea
+                        readOnly
+                        value={guestInviteModal.isMobileView ? guestInviteModal.mobileText : guestInviteModal.text}
+                        className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-sm text-white/80 font-mono resize-none focus:outline-none focus:border-indigo-500/50"
+                        onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                    />
+                </div>
+                
+                <div className="flex flex-wrap gap-2">
+                    {guestInviteModal.isMobileView && (
+                        <a 
+                            href={`tailscale://authkey/${guestInviteModal.key}`}
+                            className="flex-1 py-3 px-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm whitespace-nowrap"
+                        >
+                            Open Tailscale App
+                        </a>
+                    )}
+                    <button 
+                        onClick={() => {
+                            const textToShare = guestInviteModal.isMobileView ? guestInviteModal.mobileText : guestInviteModal.text;
+                            const hostUrl = authStatus.magicDns ? `https://${authStatus.magicDns}:5173` : window.location.origin;
+                            const htmlToShare = `
+                                <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 450px; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background: linear-gradient(to bottom right, #f8fafc, #f1f5f9); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                                    <h2 style="color: #4f46e5; margin-top: 0; font-size: 20px; display: flex; align-items: center; gap: 8px;">✨ Join my private JellyChat!</h2>
+                                    <p style="color: #334155; font-size: 14px;">Follow these steps to connect securely:</p>
+                                    <ol style="margin-left: -15px; color: #1e293b; font-size: 14px; line-height: 1.6;">
+                                        <li style="margin-bottom: 12px;"><strong>Install Tailscale</strong> from your App Store or <a href="https://tailscale.com/download" style="color: #3b82f6;">Download here</a>.</li>
+                                        <li style="margin-bottom: 12px;"><strong>Authenticate</strong> your device by clicking this link:<br/>
+                                            <a href="tailscale://authkey/${guestInviteModal.key}" style="display: inline-block; background: #10b981; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; margin-top: 8px; font-weight: 600; font-size: 13px;">🔑 Auto-Authenticate</a>
+                                        </li>
+                                        <li><strong>Open JellyChat</strong> once connected:<br/>
+                                            <a href="${hostUrl}" style="display: inline-block; background: #f43f5e; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; margin-top: 8px; font-weight: 600; font-size: 13px;">💬 Open JellyChat</a>
+                                        </li>
+                                    </ol>
+                                    <p style="font-size: 11px; color: #64748b; margin-bottom: 0; margin-top: 20px; text-align: center;">If the buttons don't work, ensure you are connected to the Tailscale VPN.</p>
+                                </div>
+                            `;
+
+                            if (navigator.share && /mobile|android|iphone|ipad/i.test(navigator.userAgent)) {
+                                navigator.share({
+                                    title: 'JellyChat Invite',
+                                    text: textToShare,
+                                }).catch(console.error);
+                            } else if (navigator.clipboard && window.ClipboardItem) {
+                                const blobText = new Blob([textToShare], { type: 'text/plain' });
+                                const blobHtml = new Blob([htmlToShare], { type: 'text/html' });
+                                navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobText, 'text/html': blobHtml })]).then(() => {
+                                    alert("Rich Invite Card copied to clipboard! Paste it into your email, Discord, or iMessage.");
+                                }).catch(() => {
+                                    navigator.clipboard.writeText(textToShare);
+                                    alert("Text copied to clipboard!");
+                                });
+                            } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(textToShare).then(() => {
+                                    alert("Text copied to clipboard!");
+                                }).catch(() => alert("Please copy the text manually."));
+                            }
+                        }}
+                        className="flex-1 py-3 px-2 bg-rose-500 hover:bg-rose-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm whitespace-nowrap"
+                    >
+                        <Share2 size={16} />
+                        Share Invite Card
+                    </button>
+                    <button 
+                        onClick={() => {
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(guestInviteModal.isMobileView ? guestInviteModal.mobileText : guestInviteModal.text).then(() => {
+                                    alert("Copied raw text to clipboard!");
+                                }).catch(() => {
+                                    alert("Please select the text above and copy it manually.");
+                                });
+                            } else {
+                                alert("Please select the text above and copy it manually.");
+                            }
+                        }}
+                        className="flex-1 py-3 px-2 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm whitespace-nowrap"
+                    >
+                        <Copy size={16} />
+                        Copy Raw Text
+                    </button>
+                </div>
+            </div>
+        </div>
+    )}
       {/* Add Preserve Modal */}
       {showAddPreserveModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -2944,6 +3288,19 @@ function App() {
               onClose={() => setShowAdminManagement(false)}
           />
       )}
+      
+      {/* Floating Admin Button */}
+      {authStatus.isAdmin && (
+          <button
+              onClick={() => setShowAdminManagement(true)}
+              className="fixed top-1/2 -translate-y-1/2 right-0 py-4 pl-3 pr-2 rounded-l-2xl bg-indigo-500/90 hover:bg-indigo-600 text-white shadow-[-4px_0_20px_rgba(99,102,241,0.5)] backdrop-blur-md transition-all z-50 group flex flex-col items-center justify-center gap-2 cursor-pointer border border-indigo-400/30 border-r-0 hover:pl-4"
+              title="Admin Control Panel"
+          >
+              <ChevronLeft size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
+              <Shield size={24} className="animate-bounce" />
+          </button>
+      )}
+
       {showGlobalSettings && (
           <GlobalSettingsModal
               onClose={() => setShowGlobalSettings(false)}
@@ -2956,9 +3313,25 @@ function App() {
                       ? profiles.find(p => p.id === assignments.find(a => a.ip === me.ip)?.profileId) 
                       : null) : null
               }
-              onProfileUpdated={(updatedProfile) => {
-                  fetchProfiles();
+              onProfileUpdated={() => {
+                  fetch('/api/profiles').then(r => r.json()).then(setProfiles);
+                  fetch('/api/assignments').then(r => r.json()).then(setAssignments);
               }}
+          />
+      )}
+      {showP2PTransfer && (
+          <P2PFileTransfer 
+              socket={socket} 
+              activeChat={activeChat} 
+              onClose={() => setShowP2PTransfer(false)} 
+          />
+      )}
+      
+      {p2pFileOffer && (
+          <P2PFileReceiver
+              socket={socket}
+              offer={p2pFileOffer}
+              onClose={() => setP2pFileOffer(null)}
           />
       )}
 
