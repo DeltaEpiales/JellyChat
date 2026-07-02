@@ -9,9 +9,11 @@ interface GlobalSettingsModalProps {
     setThemeAccent: (theme: 'jelly' | 'ocean' | 'forest' | 'sunset') => void;
     myProfile: any;
     onProfileUpdated: (newProfile: any) => void;
+    showGameServers: boolean;
+    setShowGameServers: (show: boolean) => void;
 }
 
-export function GlobalSettingsModal({ onClose, notificationsEnabled, setNotificationsEnabled, themeAccent, setThemeAccent, myProfile, onProfileUpdated }: GlobalSettingsModalProps) {
+export function GlobalSettingsModal({ onClose, notificationsEnabled, setNotificationsEnabled, themeAccent, setThemeAccent, myProfile, onProfileUpdated, showGameServers, setShowGameServers }: GlobalSettingsModalProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [name, setName] = useState(myProfile?.name || '');
     const [isSaving, setIsSaving] = useState(false);
@@ -171,6 +173,30 @@ export function GlobalSettingsModal({ onClose, notificationsEnabled, setNotifica
                                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notificationsEnabled ? 'bg-emerald-500' : 'bg-white/20'}`}
                             >
                                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notificationsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="h-px bg-white/5"></div>
+
+                    {/* UI Preferences */}
+                    <div className="space-y-3">
+                        <label className="text-xs font-bold text-white/50 uppercase tracking-widest">UI Preferences</label>
+                        <div className="flex items-center justify-between p-4 rounded-xl border border-white/5 bg-white/5">
+                            <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg ${showGameServers ? 'bg-indigo-500/20 text-indigo-400' : 'bg-white/10 text-white/50'}`}>
+                                    <Settings size={20} />
+                                </div>
+                                <div>
+                                    <div className="font-semibold text-white">Show Game Servers Tab</div>
+                                    <div className="text-xs text-white/50">Display the Game Servers browser in navigation</div>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setShowGameServers(!showGameServers)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${showGameServers ? 'bg-emerald-500' : 'bg-white/20'}`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showGameServers ? 'translate-x-6' : 'translate-x-1'}`} />
                             </button>
                         </div>
                     </div>
