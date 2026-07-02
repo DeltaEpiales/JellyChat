@@ -118,18 +118,28 @@
                 }, 60000);
             };
 
-            // Save on page unload
-            window.addEventListener('beforeunload', () => {
-                if (saveInterval) clearInterval(saveInterval);
-                try {
-                    if (window.EJS_emulator) {
-                        const state = window.EJS_emulator.getState();
-                        if (state) {
-                            const b64 = btoa(String.fromCharCode(...state));
-                            navigator.sendBeacon('/api/saves', JSON.stringify({ romHash, romName, saveData: b64 }));
+            // Listen for save-and-exit command from parent window
+            window.addEventListener('message', async (event) => {
+                if (event.data === 'SAVE_AND_EXIT') {
+                    if (saveInterval) clearInterval(saveInterval);
+                    try {
+                        if (window.EJS_emulator) {
+                            showSaveIndicator('☁️ Saving to Cloud...');
+                            const state = window.EJS_emulator.getState();
+                            if (state) {
+                                const b64 = btoa(String.fromCharCode(...state));
+                                await fetch('/api/saves', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ romHash, romName, saveData: b64 })
+                                });
+                            }
                         }
+                    } catch(e) {
+                        console.error('Exit save error:', e);
                     }
-                } catch(e) {}
+                    window.parent.postMessage('SAVE_COMPLETE', '*');
+                }
             });
 
             const script = document.createElement('script');

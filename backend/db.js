@@ -71,6 +71,24 @@ function initDb() {
             }
         });
 
+        db.run(`
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        `, (err) => {
+            if (!err) {
+                // Initialize default AI settings if they don't exist
+                const defaultOpenWebUI = process.env.OPENWEBUI_URL || 'http://localhost:3000';
+                const defaultOpenWebUIKey = process.env.OPENWEBUI_API_KEY || '';
+                const defaultComfyUI = process.env.COMFYUI_URL || 'http://localhost:8188';
+
+                db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('openwebui_url', ?)`, [defaultOpenWebUI]);
+                db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('openwebui_api_key', ?)`, [defaultOpenWebUIKey]);
+                db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('comfyui_url', ?)`, [defaultComfyUI]);
+            }
+        });
+
         // Migration for type and attachmentUrl
         db.all("PRAGMA table_info(messages)", (err, columns) => {
             if (err) return;
@@ -378,6 +396,15 @@ function editMessage(messageId, newContent) {
     });
 }
 
+function editMessageAttachment(messageId, type, attachmentUrl, fileName, content = '') {
+    return new Promise((resolve, reject) => {
+        db.run('UPDATE messages SET type = ?, attachmentUrl = ?, fileName = ?, content = ? WHERE id = ?', [type, attachmentUrl, fileName, content, messageId], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
 function deleteMessage(messageId) {
     return new Promise((resolve, reject) => {
         db.run('DELETE FROM messages WHERE id = ?', [messageId], (err) => {
@@ -610,12 +637,40 @@ function getChannelMessageCounts() {
     });
 }
 
+function getSettings() {
+    return new Promise((resolve, reject) => {
+        db.all("SELECT key, value FROM settings", [], (err, rows) => {
+            if (err) {
+                reject(err);
+            } else {
+                const settings = {};
+                rows.forEach(r => settings[r.key] = r.value);
+                resolve(settings);
+            }
+        });
+    });
+}
+
+function saveSetting(key, value) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key, value],
+            function(err) {
+                if (err) reject(err);
+                else resolve();
+            }
+        );
+    });
+}
+
 module.exports = {
     saveMessage,
     getMessages,
     addReaction,
     addSticker,
     editMessage,
+    editMessageAttachment,
     deleteMessage,
     getChannels,
     createChannel,
@@ -640,5 +695,7 @@ module.exports = {
     saveGameState,
     getGameState,
     getLastMessagePerChannel,
-    getChannelMessageCounts
+    getChannelMessageCounts,
+    getSettings,
+    saveSetting
 };

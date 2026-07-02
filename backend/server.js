@@ -17,8 +17,32 @@ const fs = require('fs');
 const child_process = require('child_process');
 
 const app = express();
-app.use(cors());
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        
+        // Allow any localhost, 127.0.0.1, local network IP, or tailscale ts.net domain
+        const isAllowed = 
+            origin.includes('localhost') || 
+            origin.includes('127.0.0.1') || 
+            origin.includes('192.168.') || 
+            origin.includes('100.') || 
+            origin.includes('ts.net');
+            
+        if (isAllowed) {
+            callback(null, true);
+        } else {
+            console.warn('Blocked by CORS:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    }
+};
+app.use(cors(corsOptions));
 app.use(express.json());
+
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime() });
+});
 
 // Setup Web Push
 const vapidKeys = JSON.parse(fs.readFileSync(path.join(__dirname, 'vapidKeys.json'), 'utf8'));
@@ -57,10 +81,7 @@ const upload = multer({ storage: storage });
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
+  cors: corsOptions
 });
 
 const peerSockets = new Map();
@@ -161,10 +182,43 @@ io.on('connection', async (socket) => {
       // Trigger Web Push Notifications
       sendPushNotification(savedMessage, recipientId);
 
-      // Check for @Jellybot trigger
-      if (content && content.toLowerCase().startsWith('@jellybot')) {
-          handleJellybotMessage(socket, savedMessage, channelId, recipientId);
+      // Check for Agent triggers or @image trigger
+      const settings = await db.getSettings();
+      const agent1Name = (settings['agent1_name'] || 'Mimir').toLowerCase();
+      const agent2Name = (settings['agent2_name'] || 'Jarvis').toLowerCase();
+
+      const lowerContent = content ? content.toLowerCase() : '';
+      let isAgent1Tagged = lowerContent.includes(`@${agent1Name}`);
+      let isAgent2Tagged = lowerContent.includes(`@${agent2Name}`);
+      let isImageTagged = lowerContent.startsWith('@image');
+
+      if (isAgent1Tagged || isAgent2Tagged) {
+          // Strip all agent tags to form the clean prompt
+          let cleanPrompt = content;
+          if (isAgent1Tagged) {
+              const regex1 = new RegExp(`@${agent1Name}\\b`, 'gi');
+              cleanPrompt = cleanPrompt.replace(regex1, '');
+          }
+          if (isAgent2Tagged) {
+              const regex2 = new RegExp(`@${agent2Name}\\b`, 'gi');
+              cleanPrompt = cleanPrompt.replace(regex2, '');
+          }
+          cleanPrompt = cleanPrompt.trim();
+
+          if (isAgent1Tagged) {
+              handleAgentMessage(socket, savedMessage, channelId, recipientId, settings['agent1_name'] || 'Mimir', settings['agent1_model'], cleanPrompt);
+          }
+          if (isAgent2Tagged) {
+              handleAgentMessage(socket, savedMessage, channelId, recipientId, settings['agent2_name'] || 'Jarvis', settings['agent2_model'], cleanPrompt);
+          }
+      } else if (isImageTagged) {
+          handleImageMessage(socket, savedMessage, channelId, recipientId);
       }
+
+      // Update channel summaries
+      const lastMessages = await db.getLastMessagePerChannel();
+      const counts = await db.getChannelMessageCounts();
+      io.emit('channel_unread_summary', { lastMessages, counts });
     } catch (err) {
       console.error('Error saving message', err);
     }
@@ -444,12 +498,12 @@ io.on('connection', async (socket) => {
   // (Moved here for better readability in actual structure)
 });
 
-// --- @Jellybot AI Assistant ---
-async function handleJellybotMessage(socket, triggerMessage, channelId, recipientId) {
-    const openWebUiUrl = process.env.OPENWEBUI_URL || 'http://localhost:3000';
-    const apiKey = process.env.OPENWEBUI_API_KEY || '';
-    const userPrompt = triggerMessage.content.replace(/^@jellybot\s*/i, '').trim();
-    if (!userPrompt) return;
+// --- Multi-Agent Support ---
+async function handleAgentMessage(socket, triggerMessage, channelId, recipientId, agentName, specificModel, cleanPrompt) {
+    const settings = await db.getSettings();
+    const openWebUiUrl = settings['openwebui_url'] || process.env.OPENWEBUI_URL || 'http://localhost:3000';
+    const apiKey = settings['openwebui_api_key'] || process.env.OPENWEBUI_API_KEY || '';
+    if (!cleanPrompt) return;
 
     try {
         // Get context: last 20 messages from the channel/DM
@@ -461,17 +515,17 @@ async function handleJellybotMessage(socket, triggerMessage, channelId, recipien
         }
 
         const chatHistory = contextMessages.map(m => ({
-            role: m.senderId === 'jellybot' ? 'assistant' : 'user',
+            role: m.senderId === 'mimir' ? 'assistant' : 'user',
             content: `${m.senderName}: ${m.content}`
         }));
 
         chatHistory.push({
             role: 'system',
-            content: 'You are Jellybot, a friendly and helpful AI assistant embedded in Jellychat, a private group chat platform. Keep responses concise and conversational. Use emoji naturally. You can see the recent chat history for context.'
+            content: `You are ${agentName}, a helpful AI assistant operating within the Jellychat interface. Your primary purpose is to assist users with their questions and tasks.`
         });
 
         // Save placeholder bot message
-        const botMessage = await db.saveMessage('jellybot', '🤖 Jellybot', '', recipientId, 'text', null, null, triggerMessage.id, channelId);
+        const botMessage = await db.saveMessage(agentName.toLowerCase(), agentName, '', recipientId, 'text', null, null, triggerMessage.id, channelId);
 
         // Emit placeholder
         if (!recipientId) {
@@ -485,61 +539,205 @@ async function handleJellybotMessage(socket, triggerMessage, channelId, recipien
         const headers = { 'Content-Type': 'application/json' };
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
+        let model = specificModel || settings['openwebui_model'] || process.env.OPENWEBUI_MODEL;
+        if (!model) {
+            try {
+                const modelsRes = await fetch(`${openWebUiUrl}/api/models`, { headers });
+                if (modelsRes.ok) {
+                    const modelsData = await modelsRes.json();
+                    if (modelsData.data && modelsData.data.length > 0) {
+                        model = modelsData.data[0].id;
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not auto-fetch models from openwebui');
+            }
+        }
+        if (!model) model = 'llama3';
+
         const response = await fetch(`${openWebUiUrl}/api/chat/completions`, {
             method: 'POST',
             headers,
             body: JSON.stringify({
-                model: process.env.OPENWEBUI_MODEL || 'llama3',
+                model: model,
                 messages: [
                     ...chatHistory,
-                    { role: 'user', content: userPrompt }
+                    { role: 'user', content: cleanPrompt }
                 ],
                 stream: true
             })
         });
 
         if (!response.ok) {
-            const errText = await response.text();
-            console.error('Jellybot API error:', response.status, errText);
-            const fallbackContent = '😅 Sorry, I couldn\'t connect to the AI backend. Make sure Open WebUI is running!';
-            await db.editMessage(botMessage.id, fallbackContent);
-            io.emit('message_edited', { messageId: botMessage.id, newContent: fallbackContent });
-            return;
+            const errorText = await response.text();
+            console.error('AI Error:', response.statusText, errorText);
+            const errorMessage = `Error: ${response.statusText}\n\`\`\`json\n${errorText}\n\`\`\``;
+            const updatedBotMsg = await db.saveMessage(agentName.toLowerCase(), agentName, errorMessage, recipientId, 'text', null, null, triggerMessage.id, channelId);
+            updatedBotMsg.id = botMessage.id; // Preserve ID for update
+            if (!recipientId) {
+                io.to(`channel_${channelId}`).emit('mimir_stream', { messageId: botMessage.id, chunk: errorMessage, fullContent: errorMessage });
+            } else {
+                io.to(recipientId).emit('mimir_stream', { messageId: botMessage.id, chunk: errorMessage, fullContent: errorMessage });
+                socket.emit('mimir_stream', { messageId: botMessage.id, chunk: errorMessage, fullContent: errorMessage });
+            }
+        } else {
+            let fullResponse = '';
+            const reader = response.body;
+            const decoder = new TextDecoder();
+
+            for await (const chunk of reader) {
+                const text = decoder.decode(chunk, { stream: true });
+                const lines = text.split('\n').filter(line => line.trim().startsWith('data:'));
+
+                for (const line of lines) {
+                    const jsonStr = line.replace('data: ', '').trim();
+                    if (jsonStr === '[DONE]') continue;
+                    try {
+                        const parsed = JSON.parse(jsonStr);
+                        const delta = parsed.choices?.[0]?.delta?.content || '';
+                        const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
+                        
+                        if (reasoning) {
+                            if (!fullResponse.includes('<think>')) {
+                                fullResponse += '<think>\n';
+                            }
+                            fullResponse += reasoning;
+                            io.emit('mimir_stream', { messageId: botMessage.id, chunk: reasoning, fullContent: fullResponse });
+                        }
+
+                        if (delta) {
+                            if (fullResponse.includes('<think>') && !fullResponse.includes('</think>')) {
+                                fullResponse += '\n</think>\n\n';
+                            }
+                            fullResponse += delta;
+                            io.emit('mimir_stream', { messageId: botMessage.id, chunk: delta, fullContent: fullResponse });
+                        }
+                    } catch (e) { /* skip non-JSON lines */ }
+                }
+            }
+
+            // Final update to DB
+            if (fullResponse) {
+                await db.editMessage(botMessage.id, fullResponse);
+                io.emit('message_edited', { messageId: botMessage.id, newContent: fullResponse });
+            } else {
+                const fallback = '🤔 I got an empty response. Try asking again!';
+                await db.editMessage(botMessage.id, fallback);
+                io.emit('message_edited', { messageId: botMessage.id, newContent: fallback });
+            }
+        }
+    } catch (err) {
+        console.error('AI Request failed', err);
+        io.to(`channel_${channelId}`).emit('new_message', await db.saveMessage(agentName.toLowerCase(), agentName, `Error: Could not reach AI server.`, recipientId, 'text', null, null, triggerMessage.id, channelId));
+    }
+}
+
+// --- @image Generation ---
+async function handleImageMessage(socket, triggerMessage, channelId, recipientId) {
+    const settings = await db.getSettings();
+    const comfyUiUrl = settings['comfyui_url'] || process.env.COMFYUI_URL || 'http://localhost:8188';
+    const userPrompt = triggerMessage.content.replace(/^@image\s*/i, '').trim();
+    if (!userPrompt) return;
+
+    try {
+        // Send generating indicator
+        const botMessage = await db.saveMessage('mimir', 'Image Gen', `Generating image for: "${userPrompt}"...`, recipientId, 'text', null, null, triggerMessage.id, channelId);
+        
+        if (!recipientId) {
+            io.to(`channel_${channelId}`).emit('new_message', botMessage);
+        } else {
+            io.to(recipientId).emit('new_message', botMessage);
+            socket.emit('new_message', botMessage);
         }
 
-        let fullResponse = '';
-        const reader = response.body;
-        const decoder = new TextDecoder();
+        const fs = require('fs');
+        const path = require('path');
+        const workflowPath = path.join(__dirname, '..', 'workflowforComfyUI.json');
+        
+        let workflow;
+        if (fs.existsSync(workflowPath)) {
+            workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
+        } else {
+            workflow = {
+                "3": { "class_type": "KSampler", "inputs": { "seed": Math.floor(Math.random() * 1000000000), "steps": 20, "cfg": 8, "sampler_name": "euler", "scheduler": "normal", "denoise": 1, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0] } },
+                "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "v1-5-pruned-emaonly.safetensors" } },
+                "5": { "class_type": "EmptyLatentImage", "inputs": { "batch_size": 1, "height": 512, "width": 512 } },
+                "6": { "class_type": "CLIPTextEncode", "inputs": { "text": userPrompt, "clip": ["4", 1] } },
+                "7": { "class_type": "CLIPTextEncode", "inputs": { "text": "watermark, text, bad quality", "clip": ["4", 1] } },
+                "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
+                "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "jellychat", "images": ["8", 0] } }
+            };
+        }
 
-        for await (const chunk of reader) {
-            const text = decoder.decode(chunk, { stream: true });
-            const lines = text.split('\n').filter(line => line.trim().startsWith('data:'));
-
-            for (const line of lines) {
-                const jsonStr = line.replace('data: ', '').trim();
-                if (jsonStr === '[DONE]') continue;
-                try {
-                    const parsed = JSON.parse(jsonStr);
-                    const delta = parsed.choices?.[0]?.delta?.content || '';
-                    if (delta) {
-                        fullResponse += delta;
-                        io.emit('jellybot_stream', { messageId: botMessage.id, chunk: delta, fullContent: fullResponse });
-                    }
-                } catch (e) { /* skip non-JSON lines */ }
+        // Find and replace text if it's our default SD workflow format
+        for (const nodeId in workflow) {
+            const node = workflow[nodeId];
+            if (node.class_type === 'CLIPTextEncode' && node.inputs && typeof node.inputs.text === 'string' && !node.inputs.text.includes('watermark')) {
+                node.inputs.text = userPrompt;
             }
         }
 
-        // Final update to DB
-        if (fullResponse) {
-            await db.editMessage(botMessage.id, fullResponse);
-            io.emit('message_edited', { messageId: botMessage.id, newContent: fullResponse });
+        const res = await fetch(`${comfyUiUrl}/prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: workflow })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            const promptId = data.prompt_id;
+            
+            // Poll for completion
+            let generatedImageName = null;
+            for (let i = 0; i < 60; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                const histRes = await fetch(`${comfyUiUrl}/history/${promptId}`);
+                if (histRes.ok) {
+                    const histData = await histRes.json();
+                    if (histData[promptId] && histData[promptId].outputs) {
+                        const outputs = histData[promptId].outputs;
+                        for (const key in outputs) {
+                            if (outputs[key].images && outputs[key].images.length > 0) {
+                                generatedImageName = outputs[key].images[0].filename;
+                                break;
+                            }
+                        }
+                        if (generatedImageName) break;
+                    }
+                }
+            }
+
+            if (generatedImageName) {
+                const imgRes = await fetch(`${comfyUiUrl}/view?filename=${generatedImageName}`);
+                if (imgRes.ok) {
+                    const buffer = await imgRes.arrayBuffer();
+                    const localFilename = `img_${Date.now()}.png`;
+                    fs.writeFileSync(path.join(__dirname, 'uploads', localFilename), Buffer.from(buffer));
+                    const attachmentUrl = `/uploads/${localFilename}`;
+
+                    await db.editMessageAttachment(botMessage.id, 'image', attachmentUrl, localFilename, '');
+                    const successMessage = { ...botMessage, type: 'image', attachmentUrl, fileName: localFilename, content: '' };
+                    io.emit('message_edited', { messageId: botMessage.id, newContent: '', type: 'image', attachmentUrl, fileName: localFilename });
+                } else {
+                    const errorMsg = 'dY " Failed to download generated image.';
+                    await db.editMessage(botMessage.id, errorMsg);
+                    io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
+                }
+            } else {
+                const errorMsg = 'dY " Image generation timed out.';
+                await db.editMessage(botMessage.id, errorMsg);
+                io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
+            }
         } else {
-            const fallback = '🤔 I got an empty response. Try asking again!';
-            await db.editMessage(botMessage.id, fallback);
-            io.emit('message_edited', { messageId: botMessage.id, newContent: fallback });
+            const errorMsg = 'dY " ComfyUI rejected the prompt. Check settings.';
+            await db.editMessage(botMessage.id, errorMsg);
+            io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
         }
     } catch (err) {
-        console.error('Jellybot error:', err);
+        console.error('Image Gen Request failed', err);
+        const errorMsg = 'dY " Could not reach ComfyUI server.';
+        await db.editMessage(botMessage.id, errorMsg);
+        io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
     }
 }
 
@@ -582,6 +780,47 @@ app.get('/api/saves/:romHash', async (req, res) => {
     } catch (err) {
         console.error('Error fetching game state', err);
         res.status(500).json({ error: 'Failed to fetch game state' });
+    }
+});
+
+// --- Settings Endpoints ---
+app.get('/api/settings', async (req, res) => {
+    if (!(await isRequesterAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    try {
+        const settings = await db.getSettings();
+        res.json(settings);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to get settings' });
+    }
+});
+
+app.post('/api/settings', async (req, res) => {
+    if (!(await isRequesterAdmin(req))) return res.status(403).json({ error: 'Forbidden' });
+    const { key, value } = req.body;
+    if (!key) return res.status(400).json({ error: 'Missing key' });
+    try {
+        await db.saveSetting(key, value);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save setting' });
+    }
+});
+
+app.get('/api/models', async (req, res) => {
+    if (!await isRequesterAdmin(req)) return res.status(403).json({ error: 'Unauthorized' });
+    try {
+        const settings = await db.getSettings();
+        const openWebUiUrl = settings['openwebui_url'] || process.env.OPENWEBUI_URL || 'http://localhost:3000';
+        const apiKey = settings['openwebui_api_key'] || process.env.OPENWEBUI_API_KEY;
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+        const modelsRes = await fetch(`${openWebUiUrl}/api/models`, { headers });
+        if (!modelsRes.ok) throw new Error('Failed to fetch from OpenWebUI');
+        const modelsData = await modelsRes.json();
+        res.json(modelsData);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch models' });
     }
 });
 
@@ -966,7 +1205,8 @@ app.get('/api/auth/status', async (req, res) => {
     }
 
     const isAdmin = await isRequesterAdmin(req);
-    res.json({ isHost, isAdmin });
+    const magicDns = tailscale.getSelfDnsName();
+    res.json({ isHost, isAdmin, magicDns });
 });
 
 app.get('/api/profiles', async (req, res) => {
@@ -1090,6 +1330,7 @@ app.post('/api/invite', async (req, res) => {
     }
 
     try {
+        const { expirySeconds = 86400, reusable = false, ephemeral = true } = req.body || {};
         const response = await fetch(`https://api.tailscale.com/api/v2/tailnet/${tailnet}/keys`, {
             method: 'POST',
             headers: {
@@ -1100,14 +1341,14 @@ app.post('/api/invite', async (req, res) => {
                 capabilities: {
                     devices: {
                         create: {
-                            reusable: false,
-                            ephemeral: true,
+                            reusable: Boolean(reusable),
+                            ephemeral: Boolean(ephemeral),
                             preauthorized: true,
                             tags: ["tag:guest"]
                         }
                     }
                 },
-                expirySeconds: 86400
+                expirySeconds: Number(expirySeconds)
             })
         });
 
@@ -1224,7 +1465,7 @@ setInterval(() => {
     const peers = Array.from(connectedIps);
     peers.forEach(ip => {
         if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return; // no need to ping local
-        child_process.exec(`ping -n 1 -w 1000 ${ip}`, (err, stdout) => {
+        child_process.execFile('ping', ['-n', '1', '-w', '1000', ip], (err, stdout) => {
             if (err) return;
             const match = stdout.match(/time[=<](\d+)ms/i);
             if (match) {
@@ -1293,7 +1534,7 @@ app.post('/api/retroarch/join', (req, res) => {
     if (!peerIp) return res.status(400).json({ error: 'Peer IP required' });
     
     const launch = () => {
-        child_process.exec(`retroarch --connect ${peerIp}`, (err) => {
+        child_process.execFile('retroarch', ['--connect', peerIp], (err) => {
             if (err) console.error('Failed to launch retroarch', err);
         });
     };
@@ -1315,6 +1556,62 @@ app.post('/api/retroarch/join', (req, res) => {
             res.json({ success: true, installed: false });
         }
     });
+});
+
+// --- Minecraft Server Browser ---
+const mcUtil = require('minecraft-server-util');
+let discoveredMcServers = [];
+
+async function scanMinecraftServers() {
+    const peers = tailscale.getActivePeers();
+    const newServers = [];
+    
+    // Add localhost to scan list if not already present
+    const ipsToScan = peers.map(p => p.ip);
+    if (!ipsToScan.includes('127.0.0.1')) ipsToScan.push('127.0.0.1');
+
+    for (const ip of ipsToScan) {
+        try {
+            const status = await mcUtil.status(ip, 25565, { timeout: 2000, enableSRV: false });
+            
+            const peerInfo = peers.find(p => p.ip === ip) || { name: 'Local Machine' };
+            
+            // Extract modinfo if available (Forge/NeoForge)
+            let modPack = null;
+            if (status.rawResponse && status.rawResponse.modinfo && status.rawResponse.modinfo.modList) {
+                 modPack = `${status.rawResponse.modinfo.modList.length} Mods Detected`;
+            } else if (status.motd && status.motd.clean && status.motd.clean.toLowerCase().includes('forge')) {
+                 modPack = 'Forge Server';
+            } else if (status.motd && status.motd.clean && status.motd.clean.toLowerCase().includes('fabric')) {
+                 modPack = 'Fabric Server';
+            }
+
+            newServers.push({
+                ip,
+                hostName: peerInfo.name,
+                motd: status.motd.html || status.motd.clean || 'A Minecraft Server',
+                players: {
+                    online: status.players.online,
+                    max: status.players.max
+                },
+                version: status.version.name,
+                favicon: status.favicon,
+                modPack
+            });
+        } catch (e) {
+            // Server offline or not running minecraft on this IP
+        }
+    }
+    
+    discoveredMcServers = newServers;
+}
+
+// Initial scan and then every 60 seconds
+scanMinecraftServers();
+setInterval(scanMinecraftServers, 60000);
+
+app.get('/api/minecraft/servers', (req, res) => {
+    res.json(discoveredMcServers);
 });
 
 app.use(express.static(path.join(__dirname, '../frontend/dist')));

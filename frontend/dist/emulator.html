@@ -20,22 +20,128 @@
             height: 100%;
             max-width: 100%;
         }
+        #save-indicator {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #4ade80;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-family: sans-serif;
+            font-size: 12px;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        #save-indicator.show { opacity: 1; }
     </style>
 </head>
 <body>
     <div id="game"></div>
+    <div id="save-indicator">☁️ Cloud Saved</div>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const core = urlParams.get('core');
         const romUrl = urlParams.get('url');
 
+        // Generate a simple hash from the ROM URL for save state keying
+        function simpleHash(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash |= 0;
+            }
+            return Math.abs(hash).toString(16);
+        }
+
+        function showSaveIndicator(text) {
+            const el = document.getElementById('save-indicator');
+            el.textContent = text || '☁️ Cloud Saved';
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 2000);
+        }
+
         if (core && romUrl) {
+            const romHash = simpleHash(romUrl);
+            const romName = decodeURIComponent(romUrl.split('/').pop());
+
             window.EJS_player = '#game';
             window.EJS_core = core;
             window.EJS_gameUrl = romUrl;
             window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
             window.EJS_netplayUrl = 'wss://netplay.emulatorjs.org';
-            
+
+            // Auto-save to cloud every 60 seconds
+            let saveInterval = null;
+
+            window.EJS_onGameStart = function() {
+                // Try to restore cloud save
+                fetch(`/api/saves/${romHash}`)
+                    .then(r => {
+                        if (r.ok) return r.json();
+                        return null;
+                    })
+                    .then(data => {
+                        if (data && data.save_data && window.EJS_emulator) {
+                            try {
+                                const bytes = Uint8Array.from(atob(data.save_data), c => c.charCodeAt(0));
+                                window.EJS_emulator.loadState(bytes);
+                                showSaveIndicator('☁️ Cloud Save Restored');
+                            } catch(e) {
+                                console.log('Could not restore save:', e);
+                            }
+                        }
+                    })
+                    .catch(() => {});
+
+                // Periodic auto-save
+                saveInterval = setInterval(() => {
+                    try {
+                        if (window.EJS_emulator) {
+                            const state = window.EJS_emulator.getState();
+                            if (state) {
+                                const b64 = btoa(String.fromCharCode(...state));
+                                fetch('/api/saves', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ romHash, romName, saveData: b64 })
+                                }).then(() => showSaveIndicator('☁️ Cloud Saved'))
+                                  .catch(() => {});
+                            }
+                        }
+                    } catch(e) {
+                        console.log('Auto-save error:', e);
+                    }
+                }, 60000);
+            };
+
+            // Listen for save-and-exit command from parent window
+            window.addEventListener('message', async (event) => {
+                if (event.data === 'SAVE_AND_EXIT') {
+                    if (saveInterval) clearInterval(saveInterval);
+                    try {
+                        if (window.EJS_emulator) {
+                            showSaveIndicator('☁️ Saving to Cloud...');
+                            const state = window.EJS_emulator.getState();
+                            if (state) {
+                                const b64 = btoa(String.fromCharCode(...state));
+                                await fetch('/api/saves', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ romHash, romName, saveData: b64 })
+                                });
+                            }
+                        }
+                    } catch(e) {
+                        console.error('Exit save error:', e);
+                    }
+                    window.parent.postMessage('SAVE_COMPLETE', '*');
+                }
+            });
+
             const script = document.createElement('script');
             script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
             document.body.appendChild(script);
