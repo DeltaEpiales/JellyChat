@@ -223,7 +223,7 @@ export function VideoCallModal({ callState, setCallState, socket }: Props) {
                 await pc.setLocalDescription(answer);
 
                 socket.emit('call_answer', {
-                    callerId: callState.peerId,
+                    toId: callState.peerId,
                     answer
                 });
                 
@@ -238,7 +238,7 @@ export function VideoCallModal({ callState, setCallState, socket }: Props) {
     };
 
     const rejectCall = () => {
-        socket.emit('reject_call', { callerId: callState.peerId });
+        socket.emit('reject_call', { toId: callState.peerId });
         cleanup();
     };
 

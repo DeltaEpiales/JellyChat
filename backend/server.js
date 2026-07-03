@@ -468,6 +468,20 @@ io.on('connection', async (socket) => {
       io.emit('status_update', { ip: socket.tailscaleIp, ...statusData });
   });
 
+  // --- Per-User Steam Info ---
+  socket.on('update_steam_info', (steamData) => {
+      if (steamData && steamData.personaName) {
+          peerSteamInfo.set(socket.tailscaleIp, {
+              personaName: steamData.personaName,
+              steamId: steamData.steamId || null,
+              installedApps: steamData.installedApps || []
+          });
+      } else {
+          peerSteamInfo.delete(socket.tailscaleIp);
+      }
+      io.emit('steam_info_update', { ip: socket.tailscaleIp, steamData: peerSteamInfo.get(socket.tailscaleIp) || null });
+  });
+
   // --- P2P File Transfer Signaling ---
   socket.on('file_offer', (data) => {
       io.to(data.recipientId).emit('file_offer', {
@@ -1386,7 +1400,8 @@ app.get('/api/peers', (req, res) => {
         ...p,
         isJellychatOnline: connectedIps.has(p.ip) || p.ip === '127.0.0.1' || p.ip === '::1',
         activity: peerActivities.get(p.ip) || null,
-        statusData: peerStatuses.get(p.ip) || null
+        statusData: peerStatuses.get(p.ip) || null,
+        steamInfo: peerSteamInfo.get(p.ip) || null
     }));
     res.json(enrichedPeers);
 });
@@ -1567,6 +1582,7 @@ const lanGameServers = new Map();
 
 // --- Steam Integration ---
 let steamInfo = { installed: false, path: null, steamId: null, personaName: null, installedApps: [] };
+const peerSteamInfo = new Map(); // ip -> { personaName, steamId, installedApps[] }
 
 // Steam App ID -> { gamedigType, displayName, defaultPort, steamAppId, joinPrefix }
 const STEAM_APP_MAP = {
@@ -1609,6 +1625,29 @@ const STEAM_APP_MAP = {
     '17710':  { gamedigType: 'svencoop',             displayName: 'Sven Co-op',                 defaultPort: 27015, joinPrefix: 'steam://connect/' },
     '674940': { gamedigType: null,                   displayName: 'Stick Fight: The Game',      defaultPort: null,  joinPrefix: null },
     '413150': { gamedigType: null,                   displayName: 'Stardew Valley',             defaultPort: null,  joinPrefix: null },
+    // --- Additional Games ---
+    '1962700':{ gamedigType: null,                   displayName: 'Subnautica 2',               defaultPort: null,  joinPrefix: null },
+    '387990': { gamedigType: null,                   displayName: 'Scrap Mechanic',             defaultPort: null,  joinPrefix: null },
+    '244850': { gamedigType: 'spaceengineers',       displayName: 'Space Engineers',            defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '394360': { gamedigType: 'hof',                  displayName: 'Hearts of Iron IV',          defaultPort: null,  joinPrefix: null },
+    '236850': { gamedigType: 'eco',                  displayName: 'Eco',                        defaultPort: 3000,  joinPrefix: null },
+    '834910': { gamedigType: 'theisle',              displayName: 'The Isle',                   defaultPort: 7707,  joinPrefix: null },
+    '1928980':{ gamedigType: 'soulmask',             displayName: 'Soulmask',                   defaultPort: 8777,  joinPrefix: null },
+    '1149460':{ gamedigType: 'icarus',               displayName: 'Icarus',                     defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '393420': { gamedigType: null,                   displayName: 'Tabletop Simulator',         defaultPort: null,  joinPrefix: null },
+    '945360': { gamedigType: null,                   displayName: 'Among Us',                   defaultPort: null,  joinPrefix: null },
+    '1100600':{ gamedigType: null,                   displayName: 'Lethal Company',             defaultPort: null,  joinPrefix: null },
+    '2881650':{ gamedigType: null,                   displayName: 'Content Warning',            defaultPort: null,  joinPrefix: null },
+    '739630': { gamedigType: null,                   displayName: 'Phasmophobia',               defaultPort: null,  joinPrefix: null },
+    '548430': { gamedigType: null,                   displayName: 'Deep Rock Galactic',         defaultPort: null,  joinPrefix: null },
+    '275850': { gamedigType: null,                   displayName: "No Man's Sky",               defaultPort: null,  joinPrefix: null },
+    '1063730':{ gamedigType: null,                   displayName: 'New World',                  defaultPort: null,  joinPrefix: null },
+    '892970': { gamedigType: 'valheim',              displayName: 'Valheim',                    defaultPort: 2456,  joinPrefix: 'steam://connect/' },
+    '1517290':{ gamedigType: null,                   displayName: 'Raft',                       defaultPort: null,  joinPrefix: null },
+    '962130': { gamedigType: null,                   displayName: 'Grounded',                   defaultPort: null,  joinPrefix: null },
+    '1369320':{ gamedigType: null,                   displayName: 'Devour',                     defaultPort: null,  joinPrefix: null },
+    '3164500':{ gamedigType: null,                   displayName: 'Schedule I',                 defaultPort: null,  joinPrefix: null },
+    '3716600':{ gamedigType: null,                   displayName: 'Mage Arena',                 defaultPort: null,  joinPrefix: null },
 };
 
 // Simple VDF parser (handles Valve's key-value format)
@@ -1737,6 +1776,11 @@ function buildGameScanList() {
         { type: 'assettocorsa',      port: 9610,  displayName: 'Assetto Corsa',            steamAppId: '244210', joinPrefix: null },
         { type: 'beammp',            port: 30814, displayName: 'BeamNG.drive (BeamMP)',     steamAppId: '284160', joinPrefix: null },
         { type: 'css',               port: 27015, displayName: 'Counter-Strike: Source',    steamAppId: '240',    joinPrefix: 'steam://connect/' },
+        { type: 'spaceengineers',    port: 27015, displayName: 'Space Engineers',            steamAppId: '244850', joinPrefix: 'steam://connect/' },
+        { type: 'eco',               port: 3000,  displayName: 'Eco',                        steamAppId: '236850', joinPrefix: null },
+        { type: 'theisle',           port: 7707,  displayName: 'The Isle',                   steamAppId: '834910', joinPrefix: null },
+        { type: 'soulmask',          port: 8777,  displayName: 'Soulmask',                   steamAppId: '1928980',joinPrefix: null },
+        { type: 'icarus',            port: 27015, displayName: 'Icarus',                     steamAppId: '1149460',joinPrefix: 'steam://connect/' },
     ];
     
     const scanList = [...alwaysScan];
@@ -1846,17 +1890,57 @@ async function scanGameServers() {
                     const gamePort = state.connect ? parseInt(state.connect.split(':').pop()) : (state.queryPort || game.port);
                     let joinUrl = game.joinPrefix ? `${game.joinPrefix}${ip}:${gamePort}` : null;
                     
-                    // Deduplicate
-                    const existing = newServers.find(s => s.ip === ip && s.port === gamePort && s.gameType === game.type);
+                    // Use the server's actual game folder/appId to determine the real game
+                    // This prevents GMod on port 27015 from also appearing as CS2 and TF2
+                    let actualGameType = game.type;
+                    let actualDisplayName = game.displayName;
+                    let actualSteamAppId = game.steamAppId;
+                    
+                    if (state.raw) {
+                        const folder = state.raw.folder || state.raw.game;
+                        const steamAppFromResponse = state.raw.steamappid || state.raw.appId;
+                        
+                        // Map the Valve response folder to the correct game
+                        const FOLDER_MAP = {
+                            'garrysmod': { type: 'garrysmod', name: "Garry's Mod", appId: '4000' },
+                            'cstrike':   { type: 'css',       name: 'Counter-Strike: Source', appId: '240' },
+                            'csgo':      { type: 'counterstrike2', name: 'Counter-Strike 2', appId: '730' },
+                            'cs2':       { type: 'counterstrike2', name: 'Counter-Strike 2', appId: '730' },
+                            'tf':        { type: 'teamfortress2', name: 'Team Fortress 2', appId: '440' },
+                            'left4dead2':{ type: 'l4d2',      name: 'Left 4 Dead 2', appId: '550' },
+                            'rust':      { type: 'rust',      name: 'Rust', appId: '252490' },
+                            'insurgency':{ type: 'insurgency', name: 'Insurgency', appId: '222880' },
+                            'ins2':      { type: 'insurgencysandstorm', name: 'Insurgency: Sandstorm', appId: '581320' },
+                            'svencoop':  { type: 'svencoop',  name: 'Sven Co-op', appId: '17710' },
+                        };
+                        
+                        if (folder && FOLDER_MAP[folder]) {
+                            actualGameType = FOLDER_MAP[folder].type;
+                            actualDisplayName = FOLDER_MAP[folder].name;
+                            actualSteamAppId = FOLDER_MAP[folder].appId;
+                        } else if (steamAppFromResponse) {
+                            const appStr = String(steamAppFromResponse);
+                            const mapped = STEAM_APP_MAP[appStr];
+                            if (mapped) {
+                                actualGameType = mapped.gamedigType || game.type;
+                                actualDisplayName = mapped.displayName;
+                                actualSteamAppId = appStr;
+                            }
+                        }
+                    }
+                    
+                    // Deduplicate by IP + port only (not game type)
+                    // This prevents the same server from showing up multiple times
+                    const existing = newServers.find(s => s.ip === ip && s.port === gamePort);
                     if (!existing) {
                         newServers.push({
                             ip,
                             port: gamePort,
                             hostName: peerInfo.name,
-                            name: state.name || `${game.displayName} Server`,
-                            game: game.displayName,
-                            gameType: game.type,
-                            displayName: game.displayName,
+                            name: state.name || `${actualDisplayName} Server`,
+                            game: actualDisplayName,
+                            gameType: actualGameType,
+                            displayName: actualDisplayName,
                             map: state.map || null,
                             players: {
                                 online: state.numplayers ?? (state.players ? state.players.length : 0),
@@ -1867,7 +1951,7 @@ async function scanGameServers() {
                             favicon: game.type === 'minecraft' && state.raw ? state.raw.favicon : null,
                             modPack,
                             joinUrl,
-                            steamAppId: game.steamAppId,
+                            steamAppId: actualSteamAppId,
                             ping: state.ping
                         });
                     }
@@ -1959,6 +2043,47 @@ app.get('/api/steam/info', (req, res) => {
 });
 
 // Get list of all supported game types
+// Fetch Workshop Collection Details
+app.get('/api/steam/collection/:id', async (req, res) => {
+    const id = req.params.id;
+    if (!id) return res.status(400).json({ error: 'ID required' });
+
+    try {
+        const response = await fetch('https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: `itemcount=1&publishedfileids[0]=${id}`
+        });
+        
+        const data = await response.json();
+        
+        if (data.response && data.response.publishedfiledetails && data.response.publishedfiledetails.length > 0) {
+            const details = data.response.publishedfiledetails[0];
+            if (details.result === 1) {
+                return res.json({
+                    id: details.publishedfileid,
+                    title: details.title,
+                    description: details.description,
+                    previewUrl: details.preview_url,
+                    appId: details.creator_app_id,
+                    appName: details.app_name,
+                    fileSize: details.file_size,
+                    subscriptions: details.subscriptions
+                });
+            } else {
+                return res.status(404).json({ error: 'Collection not found or access denied', result: details.result });
+            }
+        }
+        
+        res.status(404).json({ error: 'Collection not found' });
+    } catch (err) {
+        console.error('Steam Collection API Error:', err);
+        res.status(500).json({ error: 'Failed to fetch collection details' });
+    }
+});
+
 app.get('/api/game/supported', (req, res) => {
     const games = buildGameScanList().map(g => ({
         type: g.type,

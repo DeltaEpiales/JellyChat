@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
-import { Mic, MicOff, Headphones, PhoneOff, MonitorUp, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, Headphones, PhoneOff, MonitorUp, Video, VideoOff, Keyboard } from 'lucide-react';
 
 export interface VoiceUser {
     socketId: string;
@@ -25,6 +25,14 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
     const [isWebcamOn, setIsWebcamOn] = useState(false);
     const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
     const [focusedStreamId, setFocusedStreamId] = useState<string | null>(null);
+
+    // Audio Visualizer & PTT State
+    const [audioLevel, setAudioLevel] = useState(0);
+    const [isPttEnabled, setIsPttEnabled] = useState(false);
+    const [pttActive, setPttActive] = useState(false);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const animationFrameRef = useRef<number | null>(null);
 
     const handleStreamClick = (e: React.MouseEvent<HTMLDivElement>, id: string) => {
         const videoEl = e.currentTarget.querySelector('video');
@@ -125,6 +133,34 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
             if (!localStreamRef.current) {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 localStreamRef.current = stream;
+
+                // Setup Audio Visualizer
+                if (!audioContextRef.current) {
+                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                    if (AudioContextClass) {
+                        audioContextRef.current = new AudioContextClass();
+                        analyserRef.current = audioContextRef.current.createAnalyser();
+                        analyserRef.current.fftSize = 256;
+                        const source = audioContextRef.current.createMediaStreamSource(stream);
+                        source.connect(analyserRef.current);
+
+                        const updateVolume = () => {
+                            if (analyserRef.current) {
+                                const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+                                analyserRef.current.getByteFrequencyData(dataArray);
+                                let sum = 0;
+                                for (let i = 0; i < dataArray.length; i++) {
+                                    sum += dataArray[i];
+                                }
+                                const avg = sum / dataArray.length;
+                                // Smooth out the audio level
+                                setAudioLevel(prev => (prev * 0.7) + (avg * 0.3));
+                            }
+                            animationFrameRef.current = requestAnimationFrame(updateVolume);
+                        };
+                        updateVolume();
+                    }
+                }
             }
         } catch (e) {
             console.error("Failed to get local audio", e);
@@ -148,6 +184,10 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
             pc.close();
         }
         peerConnectionsRef.current.clear();
+        
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        if (audioContextRef.current) audioContextRef.current.close();
+        
         for (const audio of audioElementsRef.current.values()) {
             audio.pause();
             audio.srcObject = null;
@@ -250,13 +290,46 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
     };
 
     const toggleMute = () => {
-        if (localStreamRef.current) {
-            localStreamRef.current.getAudioTracks().forEach(t => {
-                t.enabled = !t.enabled;
-            });
-            setIsMuted(!localStreamRef.current.getAudioTracks()[0]?.enabled);
-        }
+        setIsMuted(!isMuted);
     };
+
+    const togglePtt = () => {
+        setIsPttEnabled(!isPttEnabled);
+    };
+
+    // Track state controller (Mute/PTT)
+    useEffect(() => {
+        if (localStreamRef.current) {
+            const shouldBeEnabled = !isMuted && (!isPttEnabled || pttActive);
+            localStreamRef.current.getAudioTracks().forEach(t => {
+                t.enabled = shouldBeEnabled;
+            });
+        }
+    }, [isMuted, isPttEnabled, pttActive, localStreamRef.current]);
+
+    // Global Key Listener for PTT (V key)
+    useEffect(() => {
+        if (!isPttEnabled) return;
+        
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key.toLowerCase() === 'v' && !e.repeat) {
+                setPttActive(true);
+            }
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.key.toLowerCase() === 'v') {
+                setPttActive(false);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, [isPttEnabled]);
 
     const toggleDeafen = () => {
         setIsDeafened(!isDeafened);
@@ -383,6 +456,9 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                 <div className="flex items-center gap-1.5 md:gap-2">
                     <button onClick={toggleMute} className={`p-2 rounded-xl transition-all ${isMuted ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Mute Microphone">
                         {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                    </button>
+                    <button onClick={togglePtt} className={`p-2 rounded-xl transition-all ${isPttEnabled ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-white/10 text-white/50 hover:bg-white/20 hover:text-white'}`} title="Push-to-Talk (Hold 'V')">
+                        <Keyboard size={16} />
                     </button>
                     <button onClick={toggleDeafen} className={`p-2 rounded-xl transition-all ${isDeafened ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Deafen">
                         <Headphones size={16} className={isDeafened ? 'opacity-50' : ''} />
@@ -539,10 +615,22 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
             
             <div className="mt-3 flex flex-wrap gap-2">
                 {connectedUsers.map(u => {
-                    const profile = u.profileId ? profiles.find(p => p.id === u.profileId) : null;
+                    const profile = profiles.find(p => p.id === u.profileId);
+                    const isLocalUser = socket?.id === u.socketId;
+                    
+                    // Render visualizer glow if local user is talking (or active PTT)
+                    const isTalking = isLocalUser && (!isMuted && (!isPttEnabled || pttActive)) && audioLevel > 5;
+                    const glowStyle = isTalking 
+                        ? { boxShadow: `0 0 ${audioLevel/3}px ${audioLevel/8}px rgba(52, 211, 153, 0.6)`, borderColor: 'rgba(52, 211, 153, 0.8)' } 
+                        : {};
+
                     return (
-                        <div key={u.socketId} className="flex items-center gap-2 bg-white/5 pr-3 pl-1 py-1 rounded-full border border-white/5">
-                            <div className="w-6 h-6 shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-[10px] font-bold overflow-hidden" title={profile ? profile.name : u.name}>
+                        <div key={u.socketId} className="flex items-center gap-2 bg-white/5 pr-3 pl-1 py-1 rounded-full border border-white/5 transition-all">
+                            <div 
+                                className={`w-6 h-6 shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-[10px] font-bold overflow-hidden transition-all duration-75`} 
+                                title={profile ? profile.name : u.name}
+                                style={{ ...glowStyle, borderWidth: isTalking ? '2px' : '0px' }}
+                            >
                                 {profile && profile.avatar ? (
                                     <img src={profile.avatar} alt="avatar" className="w-full h-full object-cover rounded-full" />
                                 ) : (

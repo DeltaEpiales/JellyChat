@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Gamepad2, Users, Activity, Copy, Check, ExternalLink, Globe, RefreshCw, Wifi, ChevronDown, ChevronUp, MonitorUp, Zap } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Gamepad2, Users, Activity, Copy, Check, ExternalLink, Globe, RefreshCw, Wifi, ChevronDown, ChevronUp, MonitorUp, Zap, Radio, Search, X } from 'lucide-react';
 
 interface GameServer {
     ip: string;
@@ -81,6 +81,11 @@ const GAME_ICONS: Record<string, string> = {
     counterstrike16: '🔫',
     insurgency: '🔫',
     svencoop: '🔬',
+    spaceengineers: '🚀',
+    eco: '🌱',
+    theisle: '🦕',
+    soulmask: '👹',
+    icarus: '🪐',
 };
 
 // Game color theming
@@ -91,9 +96,237 @@ const GAME_COLORS: Record<string, { bg: string; border: string; text: string; gl
     teamfortress2:  { bg: 'from-orange-500/15',  border: 'hover:border-orange-500/40',  text: 'text-orange-400',  glow: 'rgba(249,115,22,0.15)' },
     rust:           { bg: 'from-red-500/15',     border: 'hover:border-red-500/40',     text: 'text-red-400',     glow: 'rgba(248,113,113,0.15)' },
     valheim:        { bg: 'from-cyan-500/15',    border: 'hover:border-cyan-500/40',    text: 'text-cyan-400',    glow: 'rgba(34,211,238,0.15)' },
+    palworld:       { bg: 'from-sky-500/15',     border: 'hover:border-sky-500/40',     text: 'text-sky-400',     glow: 'rgba(56,189,248,0.15)' },
+    terrariatshock: { bg: 'from-lime-500/15',    border: 'hover:border-lime-500/40',    text: 'text-lime-400',    glow: 'rgba(163,230,53,0.15)' },
+    projectzomboid: { bg: 'from-rose-500/15',    border: 'hover:border-rose-500/40',    text: 'text-rose-400',    glow: 'rgba(244,63,94,0.15)' },
+    dayz:           { bg: 'from-stone-500/15',   border: 'hover:border-stone-500/40',   text: 'text-stone-400',   glow: 'rgba(168,162,158,0.15)' },
+    satisfactory:   { bg: 'from-violet-500/15',  border: 'hover:border-violet-500/40',  text: 'text-violet-400',  glow: 'rgba(167,139,250,0.15)' },
+    factorio:       { bg: 'from-yellow-500/15',  border: 'hover:border-yellow-500/40',  text: 'text-yellow-400',  glow: 'rgba(250,204,21,0.15)' },
+    spaceengineers: { bg: 'from-indigo-500/15',  border: 'hover:border-indigo-500/40',  text: 'text-indigo-400',  glow: 'rgba(129,140,248,0.15)' },
+    dst:            { bg: 'from-amber-600/15',   border: 'hover:border-amber-600/40',   text: 'text-amber-500',   glow: 'rgba(217,119,6,0.15)' },
+    l4d2:           { bg: 'from-red-600/15',     border: 'hover:border-red-600/40',     text: 'text-red-500',     glow: 'rgba(220,38,38,0.15)' },
+    sdtd:           { bg: 'from-zinc-500/15',    border: 'hover:border-zinc-500/40',    text: 'text-zinc-400',    glow: 'rgba(161,161,170,0.15)' },
 };
 
 const DEFAULT_COLOR = { bg: 'from-indigo-500/15', border: 'hover:border-indigo-500/40', text: 'text-indigo-400', glow: 'rgba(99,102,241,0.15)' };
+
+/* ───── Scanning Wave Animation Component ───── */
+function ScanningOverlay({ progress, scanningText }: { progress: number; scanningText: string }) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="relative flex flex-col items-center gap-6 p-10 rounded-3xl bg-[#13131f]/90 border border-indigo-500/20 shadow-[0_0_80px_rgba(99,102,241,0.15)] max-w-sm w-full">
+                {/* Radar sweep */}
+                <div className="relative w-36 h-36">
+                    {/* Concentric rings */}
+                    {[1, 2, 3].map(i => (
+                        <div
+                            key={i}
+                            className="absolute inset-0 rounded-full border border-indigo-500/10"
+                            style={{
+                                transform: `scale(${i * 0.33})`,
+                            }}
+                        />
+                    ))}
+                    {/* Rotating sweep line */}
+                    <div
+                        className="absolute top-1/2 left-1/2 w-[50%] h-[2px] origin-left"
+                        style={{
+                            background: 'linear-gradient(90deg, rgba(99,102,241,0.8) 0%, transparent 100%)',
+                            animation: 'radarSweepLine 2s linear infinite',
+                        }}
+                    />
+                    {/* Sweep trail (conic gradient) */}
+                    <div
+                        className="absolute inset-0 rounded-full"
+                        style={{
+                            background: 'conic-gradient(from 0deg, transparent 0deg, rgba(99,102,241,0.08) 30deg, transparent 60deg)',
+                            animation: 'radarSweepTrail 2s linear infinite',
+                        }}
+                    />
+                    {/* Center dot */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-400 rounded-full shadow-[0_0_12px_rgba(99,102,241,0.6)]" />
+                    {/* Blip dots appearing */}
+                    {[0, 1, 2, 3, 4].map(i => (
+                        <div
+                            key={i}
+                            className="absolute w-1.5 h-1.5 bg-indigo-400 rounded-full"
+                            style={{
+                                top: `${25 + Math.sin(i * 1.3) * 30}%`,
+                                left: `${25 + Math.cos(i * 1.7) * 35}%`,
+                                opacity: progress > i * 20 ? 1 : 0,
+                                transition: 'opacity 0.4s ease-out',
+                                boxShadow: '0 0 8px rgba(99,102,241,0.8)',
+                                animation: progress > i * 20 ? `blipPulse 1.5s ease-in-out ${i * 0.3}s infinite` : 'none',
+                            }}
+                        />
+                    ))}
+                </div>
+
+                {/* Progress text */}
+                <div className="text-center space-y-2">
+                    <h3 className="text-white font-bold text-lg tracking-tight">{scanningText}</h3>
+                    <div className="w-56 h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                            className="h-full rounded-full transition-all duration-500 ease-out"
+                            style={{
+                                width: `${progress}%`,
+                                background: 'linear-gradient(90deg, #6366f1, #818cf8, #6366f1)',
+                                backgroundSize: '200% 100%',
+                                animation: 'shimmer 1.5s ease-in-out infinite',
+                            }}
+                        />
+                    </div>
+                    <span className="text-white/30 text-xs block">Querying game server ports across your network</span>
+                </div>
+            </div>
+
+            {/* Injected keyframes */}
+            <style>{`
+                @keyframes radarSweepLine {
+                    from { transform: translateY(-50%) rotate(0deg); }
+                    to { transform: translateY(-50%) rotate(360deg); }
+                }
+                @keyframes radarSweepTrail {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                @keyframes blipPulse {
+                    0%, 100% { transform: scale(1); opacity: 0.8; }
+                    50% { transform: scale(1.8); opacity: 1; }
+                }
+                @keyframes shimmer {
+                    0% { background-position: 200% 0; }
+                    100% { background-position: -200% 0; }
+                }
+            `}</style>
+        </div>
+    );
+}
+
+function ServerDetailsModal({ server, onClose }: { server: GameServer; onClose: () => void }) {
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-[#13131f] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                {/* Header with Background */}
+                <div className="relative h-48 bg-black/50 overflow-hidden shrink-0">
+                    {server.steamAppId ? (
+                        <>
+                            <img src={`https://steamcdn-a.akamaihd.net/steam/apps/${server.steamAppId}/header.jpg`} alt="Game Background" className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#13131f] to-transparent"></div>
+                        </>
+                    ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20"></div>
+                    )}
+                    
+                    <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-black/60 rounded-full text-white/70 transition-colors backdrop-blur-md">
+                        <X size={20} />
+                    </button>
+
+                    <div className="absolute bottom-0 left-0 right-0 p-6 flex items-end gap-6">
+                        <div className="w-24 h-24 rounded-2xl bg-black/50 border-2 border-white/10 overflow-hidden shadow-xl shrink-0 flex items-center justify-center backdrop-blur-md">
+                            {server.steamAppId ? (
+                                <img src={`https://steamcdn-a.akamaihd.net/steam/apps/${server.steamAppId}/header.jpg`} alt={server.game} className="w-full h-full object-cover" />
+                            ) : server.favicon ? (
+                                <img src={server.favicon} alt={server.game} className="w-full h-full object-cover rendering-pixelated" />
+                            ) : (
+                                <Gamepad2 size={40} className="text-white/30" />
+                            )}
+                        </div>
+                        <div className="flex-1 pb-2">
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    LIVE
+                                </span>
+                                {server.modPack && (
+                                    <span className="bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest">
+                                        Modded
+                                    </span>
+                                )}
+                            </div>
+                            <h2 className="text-2xl font-bold text-white tracking-tight leading-tight line-clamp-1">{server.name}</h2>
+                            <p className="text-white/60 text-sm font-medium">{server.game}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-6 overflow-y-auto flex-1 flex flex-col md:flex-row gap-6">
+                    {/* Left Column: Details */}
+                    <div className="w-full md:w-1/3 space-y-6">
+                        <div className="space-y-4">
+                            <div>
+                                <div className="text-[10px] uppercase font-bold tracking-widest text-white/40 mb-1">Status</div>
+                                <div className="flex items-center gap-2 text-sm font-medium text-emerald-400">
+                                    <Wifi size={14} /> Online ({server.ping}ms)
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-[10px] uppercase font-bold tracking-widest text-white/40 mb-1">Address</div>
+                                <div className="flex items-center gap-2">
+                                    <code className="text-xs font-mono bg-white/5 text-white/80 px-2 py-1 rounded border border-white/10 select-all">
+                                        {server.ip}:{server.port}
+                                    </code>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-[10px] uppercase font-bold tracking-widest text-white/40 mb-1">Map</div>
+                                <div className="text-sm font-medium text-white/90">{server.map || 'Unknown Map'}</div>
+                            </div>
+                            <div>
+                                <div className="text-[10px] uppercase font-bold tracking-widest text-white/40 mb-1">Host</div>
+                                <div className="text-sm font-medium text-white/90 flex items-center gap-2">
+                                    <MonitorUp size={14} className="text-indigo-400" />
+                                    {server.hostName}
+                                </div>
+                            </div>
+                        </div>
+
+                        {server.joinUrl && (
+                            <a
+                                href={server.joinUrl}
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)]"
+                            >
+                                <ExternalLink size={18} />
+                                Join Server
+                            </a>
+                        )}
+                    </div>
+
+                    {/* Right Column: Players */}
+                    <div className="w-full md:w-2/3 flex flex-col border border-white/5 bg-black/20 rounded-xl overflow-hidden">
+                        <div className="p-3 bg-white/5 border-b border-white/5 flex items-center justify-between">
+                            <h3 className="text-xs font-bold text-white/60 uppercase tracking-widest flex items-center gap-2">
+                                <Users size={14} />
+                                Connected Players
+                            </h3>
+                            <span className="text-xs font-mono text-white/40">
+                                {server.players.online} / {server.players.max > 0 ? server.players.max : '∞'}
+                            </span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1 max-h-64">
+                            {server.players.list && server.players.list.length > 0 ? (
+                                server.players.list.map((player, idx) => (
+                                    <div key={idx} className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-sm font-medium text-white/90 flex items-center gap-3">
+                                        <div className="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-xs shrink-0">
+                                            {player.charAt(0).toUpperCase()}
+                                        </div>
+                                        {player}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="h-32 flex flex-col items-center justify-center text-white/30 gap-2">
+                                    <Globe size={24} className="opacity-50" />
+                                    <p className="text-sm">No players online (or hidden by server)</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 export function ServerBrowser() {
     const [servers, setServers] = useState<GameServer[]>([]);
@@ -102,10 +335,15 @@ export function ServerBrowser() {
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
+    const [scanProgress, setScanProgress] = useState(0);
+    const [scanText, setScanText] = useState('Initializing scan...');
     const [copiedIp, setCopiedIp] = useState<string | null>(null);
     const [expandedServer, setExpandedServer] = useState<string | null>(null);
     const [showSupportedGames, setShowSupportedGames] = useState(false);
     const [filterGame, setFilterGame] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedServer, setSelectedServer] = useState<GameServer | null>(null);
+    const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchServers = useCallback(async () => {
         try {
@@ -151,6 +389,29 @@ export function ServerBrowser() {
 
     const handleDeepScan = async () => {
         setIsScanning(true);
+        setScanProgress(0);
+        setScanText('Initializing deep scan...');
+
+        // Animate progress with realistic-feeling phase text
+        const phases = [
+            { at: 5,  text: 'Enumerating Tailscale peers...' },
+            { at: 15, text: 'Probing Valve query protocol...' },
+            { at: 30, text: 'Scanning Minecraft ports...' },
+            { at: 45, text: 'Checking Source engine servers...' },
+            { at: 60, text: 'Querying survival game ports...' },
+            { at: 75, text: 'Scanning additional game types...' },
+            { at: 88, text: 'Finalizing results...' },
+        ];
+
+        let currentProgress = 0;
+        scanIntervalRef.current = setInterval(() => {
+            currentProgress += Math.random() * 3 + 1;
+            if (currentProgress > 95) currentProgress = 95;
+            setScanProgress(currentProgress);
+            const phase = [...phases].reverse().find(p => currentProgress >= p.at);
+            if (phase) setScanText(phase.text);
+        }, 120);
+
         try {
             const res = await fetch('/api/game/servers/scan', { method: 'POST' });
             if (res.ok) {
@@ -158,14 +419,19 @@ export function ServerBrowser() {
                 if (Array.isArray(data)) {
                     setServers(data);
                 } else {
-                    // Throttled response, just refresh normally
                     await fetchServers();
                 }
             }
         } catch (e) {
             console.error('Scan failed', e);
         } finally {
-            setIsScanning(false);
+            if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+            setScanProgress(100);
+            setScanText('Scan complete!');
+            setTimeout(() => {
+                setIsScanning(false);
+                setScanProgress(0);
+            }, 600);
         }
     };
 
@@ -178,7 +444,17 @@ export function ServerBrowser() {
     const getGameColor = (gameType: string) => GAME_COLORS[gameType] || DEFAULT_COLOR;
     const getGameIcon = (gameType: string) => GAME_ICONS[gameType] || '🎮';
 
-    const filteredServers = filterGame === 'all' ? servers : servers.filter(s => s.gameType === filterGame);
+    // Filter + search
+    let filteredServers = filterGame === 'all' ? servers : servers.filter(s => s.gameType === filterGame);
+    if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        filteredServers = filteredServers.filter(s =>
+            s.name?.toLowerCase().includes(q) ||
+            s.hostName?.toLowerCase().includes(q) ||
+            s.displayName?.toLowerCase().includes(q) ||
+            s.map?.toLowerCase().includes(q)
+        );
+    }
     const uniqueGameTypes = [...new Set(servers.map(s => s.gameType))];
 
     // Get Steam header image URL
@@ -186,6 +462,8 @@ export function ServerBrowser() {
         if (!appId) return null;
         return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`;
     };
+
+    const totalPlayers = servers.reduce((a, s) => a + (s.players?.online || 0), 0);
 
     if (isLoading) {
         return (
@@ -204,8 +482,10 @@ export function ServerBrowser() {
 
     return (
         <div className="flex flex-col h-full animate-in fade-in duration-300">
-            {/* Header */}
-            <div className="mb-6 mt-2 pl-2 flex items-start justify-between">
+            {isScanning && <ScanningOverlay progress={scanProgress} scanningText={scanText} />}
+            {selectedServer && <ServerDetailsModal server={selectedServer} onClose={() => setSelectedServer(null)} />}
+
+            <div className="mb-4 mt-2 pl-2 flex items-start justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-white tracking-tight mb-1 flex items-center gap-3">
                         <Gamepad2 className="text-indigo-400" size={32} />
@@ -226,11 +506,11 @@ export function ServerBrowser() {
                     <button
                         onClick={handleDeepScan}
                         disabled={isScanning}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/20 rounded-xl transition-all text-xs font-medium disabled:opacity-50"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/20 rounded-xl transition-all text-xs font-medium disabled:opacity-50 hover:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
                         title="Force a full network rescan"
                     >
-                        <Zap size={14} className={isScanning ? 'animate-pulse' : ''} />
-                        {isScanning ? 'Scanning...' : 'Deep Scan'}
+                        <Zap size={14} />
+                        Deep Scan
                     </button>
                     <button
                         onClick={handleRefresh}
@@ -243,39 +523,44 @@ export function ServerBrowser() {
                 </div>
             </div>
 
-            {/* Steam Info Banner */}
-            {steamInfo?.installed && steamInfo.installedGames.length > 0 && (
-                <div className="mx-2 mb-4 bg-gradient-to-r from-[#1b2838]/40 to-[#2a475e]/30 border border-[#66c0f4]/10 rounded-xl p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-[#66c0f4]/10 p-2 rounded-lg">
-                            <MonitorUp className="text-[#66c0f4]" size={18} />
-                        </div>
-                        <div>
-                            <span className="text-white/80 text-sm font-medium">
-                                Scanning <span className="text-[#66c0f4] font-bold">{steamInfo.supportedGamesScanning}</span> game types
+            <div className="mx-2 mb-3 flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-4 text-xs text-white/40 bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2">
+                    <span className="flex items-center gap-1.5">
+                        <Radio size={12} className="text-emerald-400" />
+                        <span className="text-white/70 font-bold">{servers.length}</span> server{servers.length !== 1 ? 's' : ''} found
+                    </span>
+                    <span className="w-px h-4 bg-white/10" />
+                    <span className="flex items-center gap-1.5">
+                        <Users size={12} className="text-indigo-400" />
+                        <span className="text-white/70 font-bold">{totalPlayers}</span> player{totalPlayers !== 1 ? 's' : ''} online
+                    </span>
+                    {steamInfo?.installed && (
+                        <>
+                            <span className="w-px h-4 bg-white/10" />
+                            <span className="flex items-center gap-1.5">
+                                <MonitorUp size={12} className="text-[#66c0f4]" />
+                                Scanning <span className="text-white/70 font-bold">{steamInfo.supportedGamesScanning}</span> game types
                             </span>
-                            <span className="text-white/40 text-xs block">
-                                {steamInfo.installedGames.filter(g => g.canHostServer).length} of your Steam games support server hosting
-                            </span>
-                        </div>
-                    </div>
+                        </>
+                    )}
+                </div>
+                {steamInfo?.installed && steamInfo.installedGames.length > 0 && (
                     <button
                         onClick={() => setShowSupportedGames(!showSupportedGames)}
-                        className="text-white/40 hover:text-white/70 transition-colors text-xs flex items-center gap-1"
+                        className="text-white/40 hover:text-white/70 transition-colors text-xs flex items-center gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl px-3 py-2 hover:bg-white/[0.06]"
                     >
-                        {showSupportedGames ? 'Hide' : 'View Games'}
+                        {showSupportedGames ? 'Hide Games' : 'View Supported Games'}
                         {showSupportedGames ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
-                </div>
-            )}
+                )}
+            </div>
 
-            {/* Supported Games Dropdown */}
             {showSupportedGames && (
-                <div className="mx-2 mb-4 bg-white/5 border border-white/10 rounded-xl p-4 max-h-[300px] overflow-y-auto">
+                <div className="mx-2 mb-4 bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 max-h-[300px] overflow-y-auto animate-in slide-in-from-top-2 duration-200">
                     <h3 className="text-white/70 text-xs font-bold uppercase tracking-wider mb-3">Supported Games Being Scanned</h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                         {supportedGames.map(game => (
-                            <div key={game.type} className="flex items-center gap-2 bg-black/30 rounded-lg p-2">
+                            <div key={game.type} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 hover:bg-black/50 transition-colors">
                                 <span className="text-base">{getGameIcon(game.type)}</span>
                                 <div className="flex-1 min-w-0">
                                     <span className="text-white/80 text-xs font-medium truncate block">{game.name}</span>
@@ -293,34 +578,47 @@ export function ServerBrowser() {
                 </div>
             )}
 
-            {/* Filter bar (only show if servers exist) */}
-            {servers.length > 0 && uniqueGameTypes.length > 1 && (
+            {servers.length > 0 && (
                 <div className="mx-2 mb-4 flex items-center gap-2 flex-wrap">
-                    <button
-                        onClick={() => setFilterGame('all')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterGame === 'all' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/20' : 'bg-white/5 text-white/50 border border-white/5 hover:bg-white/10'}`}
-                    >
-                        All ({servers.length})
-                    </button>
-                    {uniqueGameTypes.map(gt => {
-                        const count = servers.filter(s => s.gameType === gt).length;
-                        const color = getGameColor(gt);
-                        const displayName = servers.find(s => s.gameType === gt)?.displayName || gt;
-                        return (
+                    <div className="relative">
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search servers..."
+                            className="bg-white/5 border border-white/10 rounded-lg text-white/80 text-xs pl-8 pr-3 py-1.5 w-44 placeholder:text-white/25 focus:outline-none focus:border-indigo-500/30 transition-colors"
+                        />
+                    </div>
+                    {uniqueGameTypes.length > 1 && (
+                        <>
+                            <span className="w-px h-5 bg-white/10" />
                             <button
-                                key={gt}
-                                onClick={() => setFilterGame(gt)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${filterGame === gt ? `${color.bg.replace('from-', 'bg-')} ${color.text} border border-current/20` : 'bg-white/5 text-white/50 border border-white/5 hover:bg-white/10'}`}
+                                onClick={() => setFilterGame('all')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterGame === 'all' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/20' : 'bg-white/5 text-white/50 border border-white/5 hover:bg-white/10'}`}
                             >
-                                <span>{getGameIcon(gt)}</span>
-                                {displayName} ({count})
+                                All ({servers.length})
                             </button>
-                        );
-                    })}
+                            {uniqueGameTypes.map(gt => {
+                                const count = servers.filter(s => s.gameType === gt).length;
+                                const color = getGameColor(gt);
+                                const displayName = servers.find(s => s.gameType === gt)?.displayName || gt;
+                                return (
+                                    <button
+                                        key={gt}
+                                        onClick={() => setFilterGame(gt)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${filterGame === gt ? `${color.bg.replace('from-', 'bg-')} ${color.text} border border-current/20` : 'bg-white/5 text-white/50 border border-white/5 hover:bg-white/10'}`}
+                                    >
+                                        <span>{getGameIcon(gt)}</span>
+                                        {displayName} ({count})
+                                    </button>
+                                );
+                            })}
+                        </>
+                    )}
                 </div>
             )}
 
-            {/* Empty state */}
             {filteredServers.length === 0 && (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center min-h-[300px]">
                     <div className="bg-white/5 p-6 rounded-full mb-6 border border-white/10">
@@ -331,7 +629,7 @@ export function ServerBrowser() {
                     </h3>
                     <p className="text-white/40 text-sm max-w-md leading-relaxed mb-6">
                         {servers.length > 0
-                            ? 'Try selecting a different filter or scanning again.'
+                            ? 'Try selecting a different filter, adjusting your search, or scanning again.'
                             : 'Auto-detection is running on your Tailscale network. Start a game server on any peer, or open a Minecraft LAN world to see it here.'}
                     </p>
                     <div className="flex items-center gap-3">
@@ -340,8 +638,8 @@ export function ServerBrowser() {
                             disabled={isScanning}
                             className="flex items-center gap-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 border border-indigo-500/20 px-4 py-2.5 rounded-xl transition-all font-medium text-sm disabled:opacity-50"
                         >
-                            <Zap size={16} className={isScanning ? 'animate-pulse' : ''} />
-                            {isScanning ? 'Scanning Network...' : 'Deep Scan Network'}
+                            <Zap size={16} />
+                            Deep Scan Network
                         </button>
                         <button
                             onClick={handleRefresh}
@@ -355,9 +653,8 @@ export function ServerBrowser() {
                 </div>
             )}
 
-            {/* Server Grid */}
             {filteredServers.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-12 px-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-12 px-1 overflow-y-auto">
                     {filteredServers.map((server, idx) => {
                         const connectString = `${server.ip}:${server.port}`;
                         const color = getGameColor(server.gameType);
@@ -369,10 +666,10 @@ export function ServerBrowser() {
                         return (
                             <div
                                 key={`${connectString}-${idx}`}
-                                className={`group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] ${color.border} rounded-2xl overflow-hidden transition-all duration-300 flex flex-col`}
+                                onClick={() => setSelectedServer(server)}
+                                className={`group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] ${color.border} rounded-2xl overflow-hidden transition-all duration-300 flex flex-col hover:scale-[1.01] cursor-pointer`}
                                 style={{ boxShadow: `0 0 30px ${color.glow}` }}
                             >
-                                {/* Steam header image banner */}
                                 {headerImg && (
                                     <div className="relative h-20 overflow-hidden">
                                         <img
@@ -382,11 +679,14 @@ export function ServerBrowser() {
                                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                                         />
                                         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0f0f17]" />
+                                        <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-md">
+                                            <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                                            <span className="text-emerald-400 text-[9px] font-bold uppercase tracking-wider">Live</span>
+                                        </div>
                                     </div>
                                 )}
 
                                 <div className="p-4 flex-1 flex flex-col">
-                                    {/* Game badge + ping */}
                                     <div className="flex items-start justify-between mb-2.5 gap-3">
                                         <div className={`flex items-center gap-1.5 ${color.text} text-[10px] font-bold uppercase tracking-widest bg-black/40 px-2.5 py-1 rounded-lg border border-current/10`}>
                                             <span className="text-sm">{icon}</span>
@@ -409,12 +709,10 @@ export function ServerBrowser() {
                                         </div>
                                     </div>
 
-                                    {/* Server name */}
                                     <h3 className="text-white font-bold text-base leading-snug mb-1 line-clamp-2">
                                         {server.name || 'Unnamed Server'}
                                     </h3>
 
-                                    {/* Host info */}
                                     {server.hostName && (
                                         <span className="text-white/30 text-[11px] mb-2 flex items-center gap-1">
                                             <Wifi size={10} />
@@ -422,7 +720,12 @@ export function ServerBrowser() {
                                         </span>
                                     )}
 
-                                    {/* Players + Map row */}
+                                    {server.modPack && (
+                                        <span className="text-purple-400 text-[10px] font-medium bg-purple-400/10 px-2 py-0.5 rounded-md w-fit mb-2">
+                                            {server.modPack}
+                                        </span>
+                                    )}
+
                                     <div className="flex items-center justify-between mb-3 mt-auto pt-2">
                                         <div className="flex items-center gap-2">
                                             <div className="flex items-center gap-1.5 text-white/70 text-xs">
@@ -430,7 +733,6 @@ export function ServerBrowser() {
                                                 <span className="font-bold text-white/90">{server.players.online}</span>
                                                 <span className="text-white/40">/ {server.players.max}</span>
                                             </div>
-                                            {/* Player bar */}
                                             {server.players.max > 0 && (
                                                 <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
                                                     <div
@@ -452,18 +754,17 @@ export function ServerBrowser() {
                                         )}
                                     </div>
 
-                                    {/* Player list (expandable) */}
                                     {server.players.list && server.players.list.length > 0 && (
                                         <div className="mb-3">
                                             <button
-                                                onClick={() => setExpandedServer(isExpanded ? null : connectString)}
+                                                onClick={(e) => { e.stopPropagation(); setExpandedServer(isExpanded ? null : connectString); }}
                                                 className="text-white/40 hover:text-white/60 text-[10px] font-medium flex items-center gap-1 transition-colors"
                                             >
                                                 {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                                                 {server.players.list.length} player{server.players.list.length !== 1 ? 's' : ''} online
                                             </button>
                                             {isExpanded && (
-                                                <div className="mt-1.5 bg-black/30 rounded-lg p-2 flex flex-wrap gap-1.5">
+                                                <div className="mt-1.5 bg-black/30 rounded-lg p-2 flex flex-wrap gap-1.5 animate-in slide-in-from-top-1 duration-150">
                                                     {server.players.list.map((name, i) => (
                                                         <span key={i} className="text-white/60 text-[11px] bg-white/5 px-2 py-0.5 rounded-md">
                                                             {name}
@@ -474,14 +775,13 @@ export function ServerBrowser() {
                                         </div>
                                     )}
 
-                                    {/* Connect bar */}
                                     <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
                                         <div className="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-1.5 pl-3 overflow-hidden">
                                             <span className="text-xs text-white/50 font-mono truncate mr-2 select-all">
                                                 {connectString}
                                             </span>
                                             <button
-                                                onClick={() => handleCopy(connectString)}
+                                                onClick={(e) => { e.stopPropagation(); handleCopy(connectString); }}
                                                 className="text-white/40 hover:text-white hover:bg-white/10 p-1.5 rounded-md transition-colors shrink-0"
                                                 title="Copy IP:Port"
                                             >
@@ -498,6 +798,7 @@ export function ServerBrowser() {
                                                         : 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)]'
                                                 }`}
                                                 title="Join Game"
+                                                onClick={(e) => e.stopPropagation()}
                                             >
                                                 <ExternalLink size={14} />
                                                 Join
