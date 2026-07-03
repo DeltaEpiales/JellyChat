@@ -1606,6 +1606,7 @@ const STEAM_APP_MAP = {
     '602960': { gamedigType: 'barotrauma',           displayName: 'Barotrauma',                 defaultPort: 27015, joinPrefix: 'steam://connect/' },
     '629760': { gamedigType: 'mordhau',              displayName: 'Mordhau',                    defaultPort: 27015, joinPrefix: 'steam://connect/' },
     '686810': { gamedigType: 'hll',                  displayName: 'Hell Let Loose',             defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '284160': { gamedigType: 'beammp',               displayName: 'BeamMP',                     defaultPort: 30814, joinPrefix: null },
     '393380': { gamedigType: 'squad',                displayName: 'Squad',                      defaultPort: 7787,  joinPrefix: null },
     '581320': { gamedigType: 'insurgencysandstorm',  displayName: 'Insurgency: Sandstorm',      defaultPort: 27015, joinPrefix: 'steam://connect/' },
     '440900': { gamedigType: 'conanexiles',          displayName: 'Conan Exiles',               defaultPort: 27015, joinPrefix: 'steam://connect/' },
@@ -1741,6 +1742,7 @@ function buildGameScanList() {
     // Always scan these games (most commonly hosted as dedicated servers)
     const alwaysScan = [
         { type: 'minecraft',         port: 25565, displayName: 'Minecraft',              steamAppId: null,     joinPrefix: null },
+        { type: 'minecraft',         port: 28998, displayName: 'Minecraft (Fantasy MC)', steamAppId: null,     joinPrefix: null },
         { type: 'garrysmod',         port: 27015, displayName: "Garry's Mod",             steamAppId: '4000',   joinPrefix: 'steam://connect/' },
         { type: 'counterstrike2',    port: 27015, displayName: 'Counter-Strike 2',        steamAppId: '730',    joinPrefix: 'steam://connect/' },
         { type: 'teamfortress2',     port: 27015, displayName: 'Team Fortress 2',         steamAppId: '440',    joinPrefix: 'steam://connect/' },
@@ -1748,6 +1750,7 @@ function buildGameScanList() {
         { type: 'valheim',           port: 2456,  displayName: 'Valheim',                 steamAppId: '892970', joinPrefix: 'steam://connect/' },
         { type: 'palworld',          port: 8212,  displayName: 'Palworld',                steamAppId: '1623730',joinPrefix: null },
         { type: 'terrariatshock',    port: 7777,  displayName: 'Terraria',                steamAppId: '105600', joinPrefix: null },
+        { type: 'beammp',            port: 30814, displayName: 'BeamMP',                  steamAppId: '284160', joinPrefix: null },
     ];
     
     // Additional games to scan if they're installed on Steam
@@ -1871,15 +1874,38 @@ async function scanGameServers() {
         const peerInfo = peers.find(p => p.ip === ip) || { name: (ip === '127.0.0.1' ? (steamInfo.personaName || 'Local Machine') : 'Unknown') };
         
         for (const game of gamesToScan) {
-            scanPromises.push(
-                GameDig.query({
+            const queryPromise = game.type === 'beammp'
+                ? new Promise((resolve, reject) => {
+                    const net = require('net');
+                    const socket = new net.Socket();
+                    socket.setTimeout(2000);
+                    socket.on('connect', () => {
+                        resolve({
+                            name: 'BeamMP Server',
+                            map: 'Unknown',
+                            numplayers: 0,
+                            maxplayers: 0,
+                            players: [],
+                            raw: { folder: 'beammp' },
+                            queryPort: game.port
+                        });
+                        socket.destroy();
+                    });
+                    socket.on('timeout', () => { socket.destroy(); reject(new Error('timeout')); });
+                    socket.on('error', (err) => { reject(err); });
+                    socket.connect(game.port, ip);
+                })
+                : GameDig.query({
                     type: game.type,
                     host: ip,
                     port: game.port,
                     maxAttempts: 1,
                     socketTimeout: 2000,
                     attemptTimeout: 2500
-                }).then((state) => {
+                });
+
+            scanPromises.push(
+                queryPromise.then((state) => {
                     let version = state.raw && state.raw.version ? state.raw.version : null;
                     let modPack = null;
                     
