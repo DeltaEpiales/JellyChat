@@ -1558,60 +1558,421 @@ app.post('/api/retroarch/join', (req, res) => {
     });
 });
 
-// --- Minecraft Server Browser ---
-const mcUtil = require('minecraft-server-util');
-let discoveredMcServers = [];
+// --- Game Server Browser with Steam Integration ---
+const { GameDig } = require('gamedig');
+const dgram = require('dgram');
 
-async function scanMinecraftServers() {
-    const peers = tailscale.getActivePeers();
-    const newServers = [];
-    
-    // Add localhost to scan list if not already present
-    const ipsToScan = peers.map(p => p.ip);
-    if (!ipsToScan.includes('127.0.0.1')) ipsToScan.push('127.0.0.1');
+let discoveredGameServers = [];
+const lanGameServers = new Map();
 
-    for (const ip of ipsToScan) {
-        try {
-            const status = await mcUtil.status(ip, 25565, { timeout: 2000, enableSRV: false });
-            
-            const peerInfo = peers.find(p => p.ip === ip) || { name: 'Local Machine' };
-            
-            // Extract modinfo if available (Forge/NeoForge)
-            let modPack = null;
-            if (status.rawResponse && status.rawResponse.modinfo && status.rawResponse.modinfo.modList) {
-                 modPack = `${status.rawResponse.modinfo.modList.length} Mods Detected`;
-            } else if (status.motd && status.motd.clean && status.motd.clean.toLowerCase().includes('forge')) {
-                 modPack = 'Forge Server';
-            } else if (status.motd && status.motd.clean && status.motd.clean.toLowerCase().includes('fabric')) {
-                 modPack = 'Fabric Server';
+// --- Steam Integration ---
+let steamInfo = { installed: false, path: null, steamId: null, personaName: null, installedApps: [] };
+
+// Steam App ID -> { gamedigType, displayName, defaultPort, steamAppId, joinPrefix }
+const STEAM_APP_MAP = {
+    '4000':   { gamedigType: 'garrysmod',           displayName: "Garry's Mod",                defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '730':    { gamedigType: 'counterstrike2',       displayName: 'Counter-Strike 2',           defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '440':    { gamedigType: 'teamfortress2',        displayName: 'Team Fortress 2',            defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '252490': { gamedigType: 'rust',                 displayName: 'Rust',                       defaultPort: 28015, joinPrefix: 'steam://connect/' },
+    '892970': { gamedigType: 'valheim',              displayName: 'Valheim',                    defaultPort: 2456,  joinPrefix: 'steam://connect/' },
+    '346110': { gamedigType: 'ase',                  displayName: 'ARK: Survival Evolved',      defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '2399830':{ gamedigType: 'asa',                  displayName: 'ARK: Survival Ascended',     defaultPort: 7777,  joinPrefix: null },
+    '108600': { gamedigType: 'projectzomboid',       displayName: 'Project Zomboid',            defaultPort: 16261, joinPrefix: null },
+    '322330': { gamedigType: 'dst',                  displayName: "Don't Starve Together",      defaultPort: 10999, joinPrefix: null },
+    '242760': { gamedigType: 'theforest',            displayName: 'The Forest',                 defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '1326470':{ gamedigType: null,                   displayName: 'Sons of the Forest',         defaultPort: null,  joinPrefix: null },
+    '304930': { gamedigType: 'unturned',             displayName: 'Unturned',                   defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '221100': { gamedigType: 'dayz',                 displayName: 'DayZ',                       defaultPort: 2302,  joinPrefix: 'steam://connect/' },
+    '107410': { gamedigType: 'arma3',                displayName: 'ARMA 3',                     defaultPort: 2302,  joinPrefix: 'steam://connect/' },
+    '526870': { gamedigType: 'satisfactory',         displayName: 'Satisfactory',               defaultPort: 7777,  joinPrefix: null },
+    '427520': { gamedigType: 'factorio',             displayName: 'Factorio',                   defaultPort: 34197, joinPrefix: null },
+    '1604030':{ gamedigType: 'vrising',              displayName: 'V Rising',                   defaultPort: 27015, joinPrefix: null },
+    '602960': { gamedigType: 'barotrauma',           displayName: 'Barotrauma',                 defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '629760': { gamedigType: 'mordhau',              displayName: 'Mordhau',                    defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '686810': { gamedigType: 'hll',                  displayName: 'Hell Let Loose',             defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '393380': { gamedigType: 'squad',                displayName: 'Squad',                      defaultPort: 7787,  joinPrefix: null },
+    '581320': { gamedigType: 'insurgencysandstorm',  displayName: 'Insurgency: Sandstorm',      defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '440900': { gamedigType: 'conanexiles',          displayName: 'Conan Exiles',               defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '1172620':{ gamedigType: 'enshrouded',           displayName: 'Enshrouded',                 defaultPort: 15636, joinPrefix: null },
+    '1963720':{ gamedigType: 'corekeeper',           displayName: 'Core Keeper',                defaultPort: 1234,  joinPrefix: null },
+    '211820': { gamedigType: 'starbound',            displayName: 'Starbound',                  defaultPort: 21025, joinPrefix: null },
+    '251570': { gamedigType: 'sdtd',                 displayName: '7 Days to Die',              defaultPort: 26900, joinPrefix: 'steam://connect/' },
+    '1066780':{ gamedigType: 'l4d2',                 displayName: 'Left 4 Dead 2',              defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '222880': { gamedigType: 'insurgency',           displayName: 'Insurgency',                 defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '1623730':{ gamedigType: 'palworld',             displayName: 'Palworld',                   defaultPort: 8212, joinPrefix: null },
+    '244210': { gamedigType: 'assettocorsa',         displayName: 'Assetto Corsa',              defaultPort: 9610,  joinPrefix: null },
+    '284160': { gamedigType: 'beammp',               displayName: 'BeamNG.drive (BeamMP)',      defaultPort: 30814, joinPrefix: null },
+    '105600': { gamedigType: 'terrariatshock',       displayName: 'Terraria',                   defaultPort: 7777,  joinPrefix: null },
+    '10':     { gamedigType: 'counterstrike16',      displayName: 'Counter-Strike 1.6',         defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '240':    { gamedigType: 'css',                  displayName: 'Counter-Strike: Source',     defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '550':    { gamedigType: 'l4d2',                 displayName: 'Left 4 Dead 2',              defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '17710':  { gamedigType: 'svencoop',             displayName: 'Sven Co-op',                 defaultPort: 27015, joinPrefix: 'steam://connect/' },
+    '674940': { gamedigType: null,                   displayName: 'Stick Fight: The Game',      defaultPort: null,  joinPrefix: null },
+    '413150': { gamedigType: null,                   displayName: 'Stardew Valley',             defaultPort: null,  joinPrefix: null },
+};
+
+// Simple VDF parser (handles Valve's key-value format)
+function parseVdf(text) {
+    const result = {};
+    const stack = [result];
+    const lines = text.split('\n');
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === '{') continue;
+        if (trimmed === '}') { stack.pop(); continue; }
+        
+        // Match "key" "value" pairs
+        const kvMatch = trimmed.match(/^"([^"]*)"[\s\t]+"([^"]*)"$/);
+        if (kvMatch) {
+            stack[stack.length - 1][kvMatch[1]] = kvMatch[2];
+            continue;
+        }
+        
+        // Match section headers: "key"
+        const secMatch = trimmed.match(/^"([^"]*)"$/);
+        if (secMatch) {
+            const newObj = {};
+            stack[stack.length - 1][secMatch[1]] = newObj;
+            stack.push(newObj);
+        }
+    }
+    return result;
+}
+
+function detectSteam() {
+    try {
+        // Try to read Steam install path from registry
+        const regResult = child_process.execSync(
+            'reg query "HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam" /v InstallPath',
+            { encoding: 'utf8', timeout: 5000 }
+        );
+        const pathMatch = regResult.match(/InstallPath\s+REG_SZ\s+(.+)/);
+        if (!pathMatch) return;
+        
+        const steamPath = pathMatch[1].trim();
+        if (!fs.existsSync(steamPath)) return;
+        
+        steamInfo.installed = true;
+        steamInfo.path = steamPath;
+        console.log(`[Steam] Detected installation at: ${steamPath}`);
+        
+        // Read user info from loginusers.vdf
+        const loginUsersPath = path.join(steamPath, 'config', 'loginusers.vdf');
+        if (fs.existsSync(loginUsersPath)) {
+            const loginData = parseVdf(fs.readFileSync(loginUsersPath, 'utf8'));
+            const users = loginData.users || {};
+            for (const [steamId, userData] of Object.entries(users)) {
+                if (userData.MostRecent === '1') {
+                    steamInfo.steamId = steamId;
+                    steamInfo.personaName = userData.PersonaName;
+                    console.log(`[Steam] Active user: ${userData.PersonaName} (${steamId})`);
+                    break;
+                }
             }
+        }
+        
+        // Read installed apps from libraryfolders.vdf
+        const libFoldersPath = path.join(steamPath, 'config', 'libraryfolders.vdf');
+        if (fs.existsSync(libFoldersPath)) {
+            const libData = parseVdf(fs.readFileSync(libFoldersPath, 'utf8'));
+            const folders = libData.libraryfolders || {};
+            const installedApps = new Set();
+            
+            for (const [, folderData] of Object.entries(folders)) {
+                if (folderData && folderData.apps) {
+                    for (const appId of Object.keys(folderData.apps)) {
+                        installedApps.add(appId);
+                    }
+                }
+            }
+            
+            steamInfo.installedApps = [...installedApps];
+            console.log(`[Steam] Found ${installedApps.size} installed apps`);
+        }
+    } catch (e) {
+        console.log('[Steam] Could not detect Steam installation:', e.message);
+    }
+}
 
-            newServers.push({
-                ip,
-                hostName: peerInfo.name,
-                motd: status.motd.html || status.motd.clean || 'A Minecraft Server',
-                players: {
-                    online: status.players.online,
-                    max: status.players.max
-                },
-                version: status.version.name,
-                favicon: status.favicon,
-                modPack
-            });
-        } catch (e) {
-            // Server offline or not running minecraft on this IP
+// Detect Steam on startup
+detectSteam();
+
+// Build the game scan list dynamically based on Steam + always-scan defaults
+function buildGameScanList() {
+    // Always scan these games (most commonly hosted as dedicated servers)
+    const alwaysScan = [
+        { type: 'minecraft',         port: 25565, displayName: 'Minecraft',              steamAppId: null,     joinPrefix: null },
+        { type: 'garrysmod',         port: 27015, displayName: "Garry's Mod",             steamAppId: '4000',   joinPrefix: 'steam://connect/' },
+        { type: 'counterstrike2',    port: 27015, displayName: 'Counter-Strike 2',        steamAppId: '730',    joinPrefix: 'steam://connect/' },
+        { type: 'teamfortress2',     port: 27015, displayName: 'Team Fortress 2',         steamAppId: '440',    joinPrefix: 'steam://connect/' },
+        { type: 'rust',              port: 28015, displayName: 'Rust',                    steamAppId: '252490', joinPrefix: 'steam://connect/' },
+        { type: 'valheim',           port: 2456,  displayName: 'Valheim',                 steamAppId: '892970', joinPrefix: 'steam://connect/' },
+        { type: 'palworld',          port: 8212,  displayName: 'Palworld',                steamAppId: '1623730',joinPrefix: null },
+        { type: 'terrariatshock',    port: 7777,  displayName: 'Terraria',                steamAppId: '105600', joinPrefix: null },
+    ];
+    
+    // Additional games to scan if they're installed on Steam
+    const steamConditional = [
+        { type: 'ase',               port: 27015, displayName: 'ARK: Survival Evolved',   steamAppId: '346110', joinPrefix: 'steam://connect/' },
+        { type: 'projectzomboid',    port: 16261, displayName: 'Project Zomboid',          steamAppId: '108600', joinPrefix: null },
+        { type: 'dst',               port: 10999, displayName: "Don't Starve Together",    steamAppId: '322330', joinPrefix: null },
+        { type: 'theforest',         port: 27015, displayName: 'The Forest',               steamAppId: '242760', joinPrefix: 'steam://connect/' },
+        { type: 'unturned',          port: 27015, displayName: 'Unturned',                 steamAppId: '304930', joinPrefix: 'steam://connect/' },
+        { type: 'dayz',              port: 2302,  displayName: 'DayZ',                     steamAppId: '221100', joinPrefix: 'steam://connect/' },
+        { type: 'arma3',             port: 2302,  displayName: 'ARMA 3',                   steamAppId: '107410', joinPrefix: 'steam://connect/' },
+        { type: 'satisfactory',      port: 7777,  displayName: 'Satisfactory',             steamAppId: '526870', joinPrefix: null },
+        { type: 'factorio',          port: 34197, displayName: 'Factorio',                 steamAppId: '427520', joinPrefix: null },
+        { type: 'vrising',           port: 27015, displayName: 'V Rising',                 steamAppId: '1604030',joinPrefix: null },
+        { type: 'barotrauma',        port: 27015, displayName: 'Barotrauma',               steamAppId: '602960', joinPrefix: 'steam://connect/' },
+        { type: 'mordhau',           port: 27015, displayName: 'Mordhau',                  steamAppId: '629760', joinPrefix: 'steam://connect/' },
+        { type: 'hll',              port: 27015, displayName: 'Hell Let Loose',            steamAppId: '686810', joinPrefix: 'steam://connect/' },
+        { type: 'squad',             port: 7787,  displayName: 'Squad',                    steamAppId: '393380', joinPrefix: null },
+        { type: 'insurgencysandstorm',port: 27015, displayName: 'Insurgency: Sandstorm',   steamAppId: '581320', joinPrefix: 'steam://connect/' },
+        { type: 'conanexiles',       port: 27015, displayName: 'Conan Exiles',             steamAppId: '440900', joinPrefix: 'steam://connect/' },
+        { type: 'enshrouded',        port: 15636, displayName: 'Enshrouded',               steamAppId: '1172620',joinPrefix: null },
+        { type: 'corekeeper',        port: 1234,  displayName: 'Core Keeper',              steamAppId: '1963720',joinPrefix: null },
+        { type: 'starbound',         port: 21025, displayName: 'Starbound',                steamAppId: '211820', joinPrefix: null },
+        { type: 'sdtd',              port: 26900, displayName: '7 Days to Die',            steamAppId: '251570', joinPrefix: 'steam://connect/' },
+        { type: 'l4d2',              port: 27015, displayName: 'Left 4 Dead 2',            steamAppId: '550',    joinPrefix: 'steam://connect/' },
+        { type: 'assettocorsa',      port: 9610,  displayName: 'Assetto Corsa',            steamAppId: '244210', joinPrefix: null },
+        { type: 'beammp',            port: 30814, displayName: 'BeamNG.drive (BeamMP)',     steamAppId: '284160', joinPrefix: null },
+        { type: 'css',               port: 27015, displayName: 'Counter-Strike: Source',    steamAppId: '240',    joinPrefix: 'steam://connect/' },
+    ];
+    
+    const scanList = [...alwaysScan];
+    const addedTypes = new Set(alwaysScan.map(g => g.type));
+    
+    for (const game of steamConditional) {
+        if (addedTypes.has(game.type)) continue;
+        // Add if Steam is installed and this game is installed, OR if Steam isn't detected (scan everything)
+        if (!steamInfo.installed || steamInfo.installedApps.includes(game.steamAppId)) {
+            scanList.push(game);
+            addedTypes.add(game.type);
         }
     }
     
-    discoveredMcServers = newServers;
+    return scanList;
 }
 
-// Initial scan and then every 60 seconds
-scanMinecraftServers();
-setInterval(scanMinecraftServers, 60000);
+// --- Minecraft LAN Listener (UDP Multicast) ---
+const lanServerListener = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+lanServerListener.on('error', (err) => {
+    console.error(`LAN server listener error:\n${err.stack}`);
+    lanServerListener.close();
+});
 
-app.get('/api/minecraft/servers', (req, res) => {
-    res.json(discoveredMcServers);
+lanServerListener.on('message', (msg, rinfo) => {
+    const message = msg.toString('utf8');
+    const motdMatch = message.match(/\[MOTD\](.*?)\[\/MOTD\]/);
+    const adMatch = message.match(/\[AD\](.*?)\[\/AD\]/);
+    
+    if (motdMatch && adMatch) {
+        const motd = motdMatch[1];
+        const port = parseInt(adMatch[1], 10);
+        
+        const selfIps = tailscale.getSelfIps();
+        const publishIp = selfIps.length > 0 ? selfIps[0] : '127.0.0.1';
+        const serverKey = `${publishIp}:${port}`;
+        
+        lanGameServers.set(serverKey, {
+            ip: publishIp,
+            port: port,
+            name: motd,
+            hostName: steamInfo.personaName || 'Local Machine',
+            game: 'minecraft',
+            gameType: 'minecraft',
+            displayName: 'Minecraft',
+            map: 'LAN World',
+            players: { online: 1, max: 8, list: [] },
+            ping: 1,
+            joinUrl: null,
+            steamAppId: null,
+            lastSeen: Date.now()
+        });
+    }
+});
+
+lanServerListener.on('listening', () => {
+    try {
+        lanServerListener.addMembership('224.0.2.60');
+        console.log('[GameBrowser] Minecraft LAN listener active on port 4445');
+    } catch(e) {
+        // Ignore multicast errors
+    }
+});
+
+try {
+    lanServerListener.bind(4445);
+} catch (e) {
+    console.error('[GameBrowser] Failed to bind LAN server listener', e);
+}
+
+// --- Game Server Scanner ---
+let lastScanTime = 0;
+
+async function scanGameServers() {
+    const scanStart = Date.now();
+    const peers = tailscale.getActivePeers();
+    const newServers = [];
+    
+    const ipsToScan = peers.map(p => p.ip);
+    if (!ipsToScan.includes('127.0.0.1')) ipsToScan.push('127.0.0.1');
+
+    const gamesToScan = buildGameScanList();
+    console.log(`[GameBrowser] Scanning ${ipsToScan.length} hosts × ${gamesToScan.length} game types...`);
+    
+    const scanPromises = [];
+
+    for (const ip of ipsToScan) {
+        const peerInfo = peers.find(p => p.ip === ip) || { name: (ip === '127.0.0.1' ? (steamInfo.personaName || 'Local Machine') : 'Unknown') };
+        
+        for (const game of gamesToScan) {
+            scanPromises.push(
+                GameDig.query({
+                    type: game.type,
+                    host: ip,
+                    port: game.port,
+                    maxAttempts: 1,
+                    socketTimeout: 2000,
+                    attemptTimeout: 2500
+                }).then((state) => {
+                    let version = state.raw && state.raw.version ? state.raw.version : null;
+                    let modPack = null;
+                    
+                    if (game.type === 'minecraft' && state.raw && state.raw.vanilla === false) {
+                        modPack = 'Modded Server';
+                    }
+
+                    const gamePort = state.connect ? parseInt(state.connect.split(':').pop()) : (state.queryPort || game.port);
+                    let joinUrl = game.joinPrefix ? `${game.joinPrefix}${ip}:${gamePort}` : null;
+                    
+                    // Deduplicate
+                    const existing = newServers.find(s => s.ip === ip && s.port === gamePort && s.gameType === game.type);
+                    if (!existing) {
+                        newServers.push({
+                            ip,
+                            port: gamePort,
+                            hostName: peerInfo.name,
+                            name: state.name || `${game.displayName} Server`,
+                            game: game.displayName,
+                            gameType: game.type,
+                            displayName: game.displayName,
+                            map: state.map || null,
+                            players: {
+                                online: state.numplayers ?? (state.players ? state.players.length : 0),
+                                max: state.maxplayers || 0,
+                                list: (state.players || []).map(p => p.name).filter(Boolean)
+                            },
+                            version,
+                            favicon: game.type === 'minecraft' && state.raw ? state.raw.favicon : null,
+                            modPack,
+                            joinUrl,
+                            steamAppId: game.steamAppId,
+                            ping: state.ping
+                        });
+                    }
+                }).catch(() => {
+                    // Ignore offline/timeout
+                })
+            );
+        }
+    }
+    
+    await Promise.allSettled(scanPromises);
+    discoveredGameServers = newServers;
+    lastScanTime = Date.now();
+    
+    const elapsed = Date.now() - scanStart;
+    console.log(`[GameBrowser] Scan complete: ${newServers.length} servers found in ${elapsed}ms`);
+}
+
+// Initial scan and then every 45 seconds
+scanGameServers();
+setInterval(scanGameServers, 45000);
+
+// --- API Endpoints ---
+
+// Get all discovered game servers (with live LAN merge)
+app.get('/api/game/servers', (req, res) => {
+    const now = Date.now();
+    const responseServers = [...discoveredGameServers];
+    
+    for (const [key, server] of lanGameServers.entries()) {
+        if (now - server.lastSeen > 10000) {
+            lanGameServers.delete(key);
+        } else {
+            if (!responseServers.find(s => s.ip === server.ip && s.port === server.port)) {
+                responseServers.push(server);
+            }
+        }
+    }
+    
+    res.json(responseServers);
+});
+
+// Trigger a manual rescan
+app.post('/api/game/servers/scan', async (req, res) => {
+    // Rate limit: minimum 10 seconds between scans
+    if (Date.now() - lastScanTime < 10000) {
+        return res.json({ status: 'throttled', message: 'Scan ran recently. Try again in a few seconds.' });
+    }
+    await scanGameServers();
+    // Return the fresh results
+    const now = Date.now();
+    const responseServers = [...discoveredGameServers];
+    for (const [key, server] of lanGameServers.entries()) {
+        if (now - server.lastSeen > 10000) {
+            lanGameServers.delete(key);
+        } else {
+            if (!responseServers.find(s => s.ip === server.ip && s.port === server.port)) {
+                responseServers.push(server);
+            }
+        }
+    }
+    res.json(responseServers);
+});
+
+// Steam info endpoint
+app.get('/api/steam/info', (req, res) => {
+    const installedGames = [];
+    for (const appId of steamInfo.installedApps) {
+        const mapped = STEAM_APP_MAP[appId];
+        if (mapped) {
+            installedGames.push({
+                steamAppId: appId,
+                name: mapped.displayName,
+                canHostServer: mapped.gamedigType !== null,
+                gamedigType: mapped.gamedigType
+            });
+        }
+    }
+    
+    res.json({
+        installed: steamInfo.installed,
+        personaName: steamInfo.personaName,
+        steamId: steamInfo.steamId,
+        installedGames,
+        totalInstalledApps: steamInfo.installedApps.length,
+        supportedGamesScanning: buildGameScanList().length,
+        lastScanTime
+    });
+});
+
+// Get list of all supported game types
+app.get('/api/game/supported', (req, res) => {
+    const games = buildGameScanList().map(g => ({
+        type: g.type,
+        name: g.displayName,
+        defaultPort: g.port,
+        steamAppId: g.steamAppId,
+        hasJoinUrl: !!g.joinPrefix,
+        installed: g.steamAppId ? steamInfo.installedApps.includes(g.steamAppId) : null
+    }));
+    // Also add Minecraft LAN
+    if (!games.find(g => g.type === 'minecraft')) {
+        games.unshift({ type: 'minecraft', name: 'Minecraft (Java)', defaultPort: 25565, steamAppId: null, hasJoinUrl: false, installed: null });
+    }
+    res.json(games);
 });
 
 app.use(express.static(path.join(__dirname, '../frontend/dist')));

@@ -377,9 +377,18 @@ function App() {
       return (saved as any) || 'jelly';
   });
 
+  const [showGameServers, setShowGameServers] = useState<boolean>(() => {
+      const saved = localStorage.getItem('showGameServers');
+      return saved === null ? true : saved === 'true';
+  });
+
   useEffect(() => {
       localStorage.setItem('themeAccent', themeAccent);
   }, [themeAccent]);
+
+  useEffect(() => {
+      localStorage.setItem('showGameServers', String(showGameServers));
+  }, [showGameServers]);
   
   const [profiles, setProfiles] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
@@ -1758,10 +1767,21 @@ function App() {
               </div>
           </div>
 
-          {/* Server Browser Widget */}
-          <div className="mt-4 mb-4 flex-shrink-0">
-              <ServerBrowser />
-          </div>
+          {showGameServers && (
+              <div className="mt-2 mb-4 flex-shrink-0">
+                  <button 
+                    onClick={() => { setActiveChat('game_servers'); setIsSidebarOpen(false); }}
+                    className={`w-full flex items-center p-3 rounded-xl transition-all ${activeChat === 'game_servers' ? 'bg-white/10 shadow-inner glow-accent border border-white/10' : 'hover:bg-white/5'}`}
+                  >
+                      <div className="flex items-center gap-3 text-white/90">
+                          <div className={`p-2 rounded-lg ${activeChat === 'game_servers' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-white/5 text-white/60'}`}>
+                              <Gamepad2 size={16} />
+                          </div>
+                          <span className="font-medium">Game Servers</span>
+                      </div>
+                  </button>
+              </div>
+          )}
 
           <div>
               <button 
@@ -2032,15 +2052,15 @@ function App() {
                 <Menu size={20} />
             </button>
             <div className="bg-white/5 p-2 rounded-lg hidden sm:block">
-                {activeChat === null ? <Terminal className="text-white/60" size={18} /> : <MessageCircle className="text-white/60" size={18} />}
+                {activeChat === 'game_servers' ? <Gamepad2 className="text-indigo-400" size={18} /> : (activeChat === null ? <Terminal className="text-white/60" size={18} /> : <MessageCircle className="text-white/60" size={18} />)}
             </div>
             <div className="flex-1 min-w-0 pr-2">
                 <h2 key={activeChat} className="font-semibold text-white/90 text-sm md:text-base truncate animate-in fade-in slide-in-from-bottom-1 duration-300">
-                    {activeChat === null ? 'Global Feed' : `Chat with ${activePeerName}`}
+                    {activeChat === 'game_servers' ? 'Network Game Servers' : (activeChat === null ? 'Global Feed' : `Chat with ${activePeerName}`)}
                 </h2>
                 <div key={`${activeChat}-status`} className="flex items-center gap-2 mt-0.5 animate-in fade-in duration-500 delay-100 fill-mode-both">
                     <p className="text-[10px] md:text-[11px] text-white/40 truncate">
-                        {activeChat === null ? 'Encrypted via Tailscale' : 'End-to-End Encrypted'}
+                        {activeChat === 'game_servers' ? 'Auto-detected on Tailscale' : (activeChat === null ? 'Encrypted via Tailscale' : 'End-to-End Encrypted')}
                     </p>
                     {chatPeer && (
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -2181,6 +2201,12 @@ function App() {
         </header>
 
         {/* Messages */}
+        {activeChat === 'game_servers' ? (
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 relative z-10 custom-scrollbar flex flex-col min-h-0">
+                <ServerBrowser />
+            </div>
+        ) : (
+          <>
         <div 
             ref={messagesContainerRef} 
             onScroll={handleScroll}
@@ -2666,6 +2692,8 @@ function App() {
               </form>
           </div>
         </div>
+        </>
+        )}
       </main>
 
       {/* Lightbox for Images */}
@@ -3308,6 +3336,8 @@ function App() {
               setNotificationsEnabled={setNotificationsEnabled}
               themeAccent={themeAccent}
               setThemeAccent={setThemeAccent}
+              showGameServers={showGameServers}
+              setShowGameServers={setShowGameServers}
               myProfile={
                   me ? (assignments.find(a => a.ip === me.ip) 
                       ? profiles.find(p => p.id === assignments.find(a => a.ip === me.ip)?.profileId) 
