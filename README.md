@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="favicon.jpg" alt="Jellychat Logo" width="200"/>
+  <img src="jellychat_logo.png" alt="Jellychat Logo" width="200"/>
 </p>
 
 <h1 align="center">Jellychat</h1>
