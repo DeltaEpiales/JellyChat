@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import type { ClipboardEvent } from 'react';
 import { io, Socket } from 'socket.io-client';
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
-import { Send, Terminal, Activity, Wifi, Paperclip, Loader2, Download, Upload, X, MessageCircle, Menu, Trash2, Monitor, Smartphone, BellRing, FileText, Mic, Square, Play, Pause, Headphones, Reply, Check, CheckCheck, Edit2, Link, Sticker, Search, Video, Phone, MoreVertical, UserPlus, Gamepad2, Users, Copy, Wand2, Plus, Image as ImageIcon, PanelLeft, PenTool, MonitorUp, Settings, Hash, Volume2, Shield, Clock, Flame, Zap, Share2, ChevronLeft } from 'lucide-react';
+import { Send, Terminal, Activity, Wifi, Paperclip, Loader2, Download, Upload, X, MessageCircle, Menu, Trash2, Monitor, Smartphone, BellRing, FileText, Mic, Square, Play, Pause, Headphones, Reply, Check, CheckCheck, Edit2, Link, Sticker, Search, Video, Phone, MoreVertical, UserPlus, Gamepad2, Users, Copy, Wand2, Plus, Image as ImageIcon, PanelLeft, PenTool, MonitorUp, Settings, Hash, Volume2, Shield, Clock, Flame, Zap, Share2, ChevronLeft, Package } from 'lucide-react';
 import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,6 +15,8 @@ import { ChannelSettingsModal } from './components/ChannelSettingsModal';
 import { AdminManagementModal } from './components/AdminManagementModal';
 import { ServerBrowser } from './components/ServerBrowser';
 import { GlobalSettingsModal } from './components/GlobalSettingsModal';
+import { ModSyncHub } from './components/ModSyncHub';
+import { ModpackSyncMessage } from './components/ModpackSyncMessage';
 import { VoiceChannelManager } from './components/VoiceChannelManager';
 import { P2PFileTransfer } from './components/P2PFileTransfer';
 import { P2PFileReceiver } from './components/P2PFileReceiver';
@@ -382,6 +384,11 @@ function App() {
       return saved === null ? true : saved === 'true';
   });
 
+  const [shareSteamPresence, setShareSteamPresence] = useState<boolean>(() => {
+      const saved = localStorage.getItem('shareSteamPresence');
+      return saved === null ? true : saved === 'true';
+  });
+
   useEffect(() => {
       localStorage.setItem('themeAccent', themeAccent);
   }, [themeAccent]);
@@ -403,6 +410,7 @@ function App() {
   const [showGiphy, setShowGiphy] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
   const [showAiDrawer, setShowAiDrawer] = useState(false);
+  const [showModSync, setShowModSync] = useState(false);
   const [showPreservesSidebar, setShowPreservesSidebar] = useState(false);
   const [activeVoiceChannels, setActiveVoiceChannels] = useState<Record<string, any[]>>({});
   const [showAddPreserveModal, setShowAddPreserveModal] = useState(false);
@@ -690,6 +698,23 @@ function App() {
       }
   };
 
+
+
+
+  useEffect(() => {
+      if (!socket) return;
+      if (shareSteamPresence) {
+          fetch('/api/steam/info')
+              .then(res => res.json())
+              .then(data => {
+                  socket.emit('update_steam_info', data);
+              })
+              .catch(err => console.error("Failed to fetch steam info for presence:", err));
+      } else {
+          socket.emit('update_steam_info', null);
+      }
+  }, [socket, shareSteamPresence]);
+
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -928,7 +953,7 @@ function App() {
     const fetchPeers = () => {
       fetch(`/api/peers`)
         .then(res => res.json())
-        .then(data => setPeers(data))
+        .then(setPeers)
         .catch(err => console.error('Error fetching peers', err));
         
       fetch('/api/profiles')
@@ -2437,6 +2462,14 @@ function App() {
                                         <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(232,121,249,0.8)]" style={{ animationDelay: '150ms' }} />
                                         <div className="w-2 h-2 bg-rose-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(251,113,133,0.8)]" style={{ animationDelay: '300ms' }} />
                                     </div>
+                                ) : msg.type === 'modpack_sync' ? (
+                                    <ModpackSyncMessage 
+                                        content={msg.content} 
+                                        isMe={isMe} 
+                                        onJoinP2P={(payload) => {
+                                            alert(`P2P Modpack Sync for ${payload.name} is not fully implemented yet in Phase 5! Workshop works though!`);
+                                        }} 
+                                    />
                                 ) : (
                                     <RenderMessage content={formatMentions(msg.content)} />
                                 )}
@@ -2589,6 +2622,9 @@ function App() {
                             </button>
                             <button type="button" onClick={() => { setShowPlusTray(false); setShowP2PTransfer(true); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 text-emerald-400 transition-all text-sm font-medium whitespace-nowrap">
                                 <Zap size={18} /> P2P Large File
+                            </button>
+                            <button type="button" onClick={() => { setShowPlusTray(false); setShowModSync(true); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-[#1b2838] text-[#66c0f4] transition-all text-sm font-medium whitespace-nowrap">
+                                <Package size={18} /> Modpack / Workshop
                             </button>
                             <button type="button" onClick={() => { setShowPlusTray(false); setShowStickers(true); }} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-all text-sm font-medium whitespace-nowrap">
                                 <Sticker size={18} /> Stickers
@@ -2961,6 +2997,12 @@ function App() {
                                                   <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(232,121,249,0.8)]" style={{ animationDelay: '150ms' }} />
                                                   <div className="w-2 h-2 bg-rose-400 rounded-full animate-bounce shadow-[0_0_10px_rgba(251,113,133,0.8)]" style={{ animationDelay: '300ms' }} />
                                               </div>
+                                          ) : msg.type === 'modpack_sync' ? (
+                                              <ModpackSyncMessage 
+                                                  content={msg.content} 
+                                                  isMe={msg.senderId === me?.ip} 
+                                                  onJoinP2P={() => {}} 
+                                              />
                                           ) : (
                                               <RenderMessage content={formatMentions(msg.content)} />
                                           )}
@@ -3338,6 +3380,8 @@ function App() {
               setThemeAccent={setThemeAccent}
               showGameServers={showGameServers}
               setShowGameServers={setShowGameServers}
+              shareSteamPresence={shareSteamPresence}
+              setShareSteamPresence={setShareSteamPresence}
               myProfile={
                   me ? (assignments.find(a => a.ip === me.ip) 
                       ? profiles.find(p => p.id === assignments.find(a => a.ip === me.ip)?.profileId) 
@@ -3348,6 +3392,31 @@ function App() {
                   fetch('/api/assignments').then(r => r.json()).then(setAssignments);
               }}
           />
+      )}
+
+      {showModSync && (
+        <ModSyncHub
+          onClose={() => setShowModSync(false)}
+          onSendInvite={(type, payload) => {
+            if (!activeChannel) return;
+            const content = type === 'folder' 
+                ? `[MODPACK SYNC] Local Folder Sync: ${payload.name} (${payload.fileCount} files)` 
+                : `[MODPACK SYNC] Steam Workshop: ${payload.title}`;
+            
+            if (socket) {
+                socket.emit('send_message', {
+                    content: JSON.stringify({
+                        text: content,
+                        syncType: type,
+                        payload: payload
+                    }),
+                    channelId: activeChannel || undefined,
+                    recipientId: activeChat,
+                    type: 'modpack_sync'
+                });
+            }
+          }}
+        />
       )}
       {showP2PTransfer && (
           <P2PFileTransfer 
