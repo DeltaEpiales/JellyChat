@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Upload, X, Check, Loader2, Zap } from 'lucide-react';
 import { Socket } from 'socket.io-client';
 
@@ -6,48 +6,16 @@ interface P2PFileTransferProps {
     socket: Socket | null;
     activeChat: string | null;
     onClose: () => void;
+    peers?: any[];
+    assignments?: any[];
 }
 
-export const P2PFileTransfer: React.FC<P2PFileTransferProps> = ({ socket, activeChat, onClose }) => {
+export const P2PFileTransfer: React.FC<P2PFileTransferProps> = ({ socket, activeChat, onClose, peers = [], assignments = [] }) => {
     const [file, setFile] = useState<File | null>(null);
-    const [progress, setProgress] = useState(0);
-    const [status, setStatus] = useState<'idle' | 'offering' | 'transferring' | 'complete' | 'error'>('idle');
+    const [status, setStatus] = useState<'idle' | 'transferring' | 'complete' | 'error'>('idle');
     const [errorMsg, setErrorMsg] = useState('');
-    
-    const peerConnection = useRef<RTCPeerConnection | null>(null);
-    const dataChannel = useRef<RTCDataChannel | null>(null);
-    const fileReader = useRef<FileReader>(new FileReader());
-    
-    useEffect(() => {
-        if (!socket) return;
-        
-        socket.on('file_answer', async (data) => {
-            if (peerConnection.current && status === 'offering') {
-                try {
-                    await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-                    setStatus('transferring');
-                } catch (e) {
-                    console.error('Error setting remote description for answer:', e);
-                    setStatus('error');
-                    setErrorMsg('Failed to connect to peer');
-                }
-            }
-        });
-        
-        socket.on('file_ice', (data) => {
-            if (peerConnection.current) {
-                peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(e => {
-                    console.error('Error adding ICE candidate:', e);
-                });
-            }
-        });
-        
-        return () => {
-            socket.off('file_answer');
-            socket.off('file_ice');
-            if (peerConnection.current) peerConnection.current.close();
-        };
-    }, [socket, status]);
+    const [selectedIp, setSelectedIp] = useState<string>('');
+    const [progress, setProgress] = useState<number>(0);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -58,121 +26,69 @@ export const P2PFileTransfer: React.FC<P2PFileTransferProps> = ({ socket, active
     const startTransfer = async () => {
         if (!file || !activeChat || !socket) return;
         
-        setStatus('offering');
-        
-        // Setup WebRTC
-        const pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        });
-        peerConnection.current = pc;
-        
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('file_ice', {
-                    recipientId: activeChat,
-                    candidate: event.candidate
-                });
-            }
-        };
-        
-        const dc = pc.createDataChannel('fileTransfer', {
-            ordered: true
-        });
-        dataChannel.current = dc;
-        
-        dc.onopen = () => {
-            sendFileChunks();
-        };
-        
-        dc.onclose = () => {
-            if (progress < 100) {
+        let targetIp = activeChat;
+        if (activeChat.startsWith('prof_')) {
+            if (!selectedIp) {
+                setErrorMsg('Please select a device');
                 setStatus('error');
-                setErrorMsg('Connection closed unexpectedly');
+                return;
             }
-        };
-        
-        dc.onerror = (err) => {
-            console.error('Data channel error:', err);
-            setStatus('error');
-            setErrorMsg('Connection error');
-        };
+            targetIp = selectedIp;
+        }
 
+        setStatus('transferring');
+        setProgress(0);
+        
         try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            
-            socket.emit('file_offer', {
-                recipientId: activeChat,
+            socket.emit('p2p_file_start', {
+                recipientId: targetIp,
                 fileName: file.name,
                 fileSize: file.size,
-                fileType: file.type,
-                offer: offer
+                mimeType: file.type || 'application/octet-stream'
             });
-        } catch (e) {
-            console.error('Error creating offer:', e);
+
+            const CHUNK_SIZE = 512 * 1024; // 512KB chunks
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(file.size, start + CHUNK_SIZE);
+                const chunk = file.slice(start, end);
+                const buffer = await chunk.arrayBuffer();
+
+                socket.emit('p2p_file_chunk', {
+                    recipientId: targetIp,
+                    fileName: file.name,
+                    chunk: buffer,
+                    index: i,
+                    totalChunks: totalChunks
+                });
+
+                setProgress(Math.round(((i + 1) / totalChunks) * 100));
+            }
+
+            socket.emit('p2p_file_complete', {
+                recipientId: targetIp,
+                fileName: file.name
+            });
+
+            setStatus('complete');
+            setTimeout(() => {
+                onClose();
+            }, 2000);
+        } catch (e: any) {
+            console.error('Error sending file via WebSockets:', e);
             setStatus('error');
-            setErrorMsg('Failed to create P2P offer');
+            setErrorMsg(e.message || 'Connection error');
         }
     };
     
-    const sendFileChunks = () => {
-        if (!file || !dataChannel.current) return;
-        
-        const CHUNK_SIZE = 64 * 1024; // 64KB
-        let offset = 0;
-        
-        fileReader.current.onerror = error => {
-            console.error('Error reading file:', error);
-            setStatus('error');
-            setErrorMsg('Error reading file from disk');
-        };
-        
-        fileReader.current.onload = e => {
-            if (!dataChannel.current || dataChannel.current.readyState !== 'open') return;
-            
-            dataChannel.current.send(e.target?.result as ArrayBuffer);
-            offset += (e.target?.result as ArrayBuffer).byteLength;
-            
-            const pct = Math.round((offset / file.size) * 100);
-            setProgress(pct);
-            
-            // Inform the receiver about the progress so they can show a bar too (optional, or let them track locally)
-            if (socket) {
-                socket.emit('file_progress', { recipientId: activeChat, progress: pct });
-            }
-
-            if (offset < file.size) {
-                readSlice(offset);
-            } else {
-                setStatus('complete');
-                setTimeout(() => {
-                    onClose();
-                }, 2000);
-            }
-        };
-        
-        const readSlice = (o: number) => {
-            const slice = file.slice(offset, o + CHUNK_SIZE);
-            fileReader.current.readAsArrayBuffer(slice);
-        };
-        
-        // Handle backpressure
-        dataChannel.current.bufferedAmountLowThreshold = CHUNK_SIZE * 2;
-        dataChannel.current.onbufferedamountlow = () => {
-            if (offset < file.size && dataChannel.current?.readyState === 'open') {
-                readSlice(offset);
-            }
-        };
-        
-        readSlice(0);
-    };
-
     return (
         <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <Zap className="text-emerald-400" size={24} /> P2P File Transfer
+                        <Zap className="text-emerald-400" size={24} /> File Transfer
                     </h3>
                     <button onClick={onClose} className="text-white/50 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10">
                         <X size={20} />
@@ -182,7 +98,7 @@ export const P2PFileTransfer: React.FC<P2PFileTransferProps> = ({ socket, active
                 {status === 'idle' && (
                     <div className="space-y-4">
                         <p className="text-sm text-white/70">
-                            Send files directly to the other user bypassing the server. Ideal for massive files like movies or ROMs.
+                            Securely transfer a file directly to the other user via P2P WebSockets. They will receive a prompt to download it.
                         </p>
                         
                         {!file ? (
@@ -204,43 +120,42 @@ export const P2PFileTransfer: React.FC<P2PFileTransferProps> = ({ socket, active
                         )}
                         
                         <div className="flex justify-end gap-3 mt-6">
+                            {activeChat && activeChat.startsWith('prof_') && (
+                                <div className="flex-1">
+                                    <select
+                                        value={selectedIp}
+                                        onChange={(e) => setSelectedIp(e.target.value)}
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                                    >
+                                        <option value="" disabled>Select target device...</option>
+                                        {peers.filter(p => assignments.find(a => a.ip === p.ip && a.profileId === activeChat)).map(p => (
+                                            <option key={p.ip} value={p.ip}>{p.name} ({p.ip})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             <button onClick={onClose} className="px-4 py-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors font-medium">
                                 Cancel
                             </button>
                             <button 
                                 onClick={startTransfer}
-                                disabled={!file || !activeChat}
-                                className="px-6 py-2 rounded-xl bg-emerald-500 text-white font-bold hover:bg-emerald-400 transition-colors disabled:opacity-50 disabled:grayscale shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:shadow-[0_0_20px_rgba(16,185,129,0.5)] flex items-center gap-2"
+                                disabled={!file || !activeChat || (activeChat.startsWith('prof_') && !selectedIp) || !socket}
+                                className="px-6 py-2 rounded-xl bg-emerald-500 text-white font-bold hover:bg-emerald-400 transition-colors disabled:opacity-50 disabled:grayscale shadow-[0_0_15px_var(--color-theme-glow-alt)] hover:shadow-[0_0_20px_var(--color-theme-glow-alt)] flex items-center gap-2"
                             >
-                                <Zap size={18} /> Send Directly
+                                <Zap size={18} /> Send File
                             </button>
                         </div>
                     </div>
                 )}
                 
-                {status === 'offering' && (
+                {status === 'transferring' && (
                     <div className="flex flex-col items-center justify-center py-8">
                         <Loader2 className="animate-spin text-emerald-400 mb-4" size={40} />
-                        <p className="text-white font-medium">Waiting for peer to accept...</p>
-                        <p className="text-white/50 text-sm mt-2 text-center max-w-[250px]">
-                            They must click "Accept" on their screen to begin the transfer.
-                        </p>
-                    </div>
-                )}
-                
-                {status === 'transferring' && (
-                    <div className="space-y-4 py-4">
-                        <div className="flex justify-between text-sm mb-1">
-                            <span className="text-white/80 font-medium truncate pr-4">{file?.name}</span>
-                            <span className="text-emerald-400 font-bold">{progress}%</span>
+                        <p className="text-white font-medium mb-4">Transferring via WebSockets...</p>
+                        <div className="w-full max-w-[80%] h-2 bg-white/10 rounded-full overflow-hidden mb-2">
+                            <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
                         </div>
-                        <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden">
-                            <div 
-                                className="h-full bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.8)] transition-all duration-300" 
-                                style={{ width: `${progress}%` }}
-                            />
-                        </div>
-                        <p className="text-center text-xs text-white/50 animate-pulse">Do not close this window</p>
+                        <p className="text-white/60 text-xs font-mono">{progress}% Complete</p>
                     </div>
                 )}
                 
@@ -250,6 +165,7 @@ export const P2PFileTransfer: React.FC<P2PFileTransferProps> = ({ socket, active
                             <Check size={32} />
                         </div>
                         <p className="text-white font-bold text-lg">Transfer Complete!</p>
+                        <p className="text-emerald-400/80 text-sm mt-2">File sent successfully.</p>
                     </div>
                 )}
                 

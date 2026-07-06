@@ -23,7 +23,7 @@ function updateTailscaleStatus() {
         const selfOS = data.Self.OS || 'Unknown';
         if (data.Self.TailscaleIPs) {
           data.Self.TailscaleIPs.forEach(ip => {
-            newCache[ip.toLowerCase()] = { name: selfName, os: selfOS };
+            newCache[ip.toLowerCase()] = { name: selfName, os: selfOS, isOnline: true };
           });
         }
       }
@@ -34,8 +34,9 @@ function updateTailscaleStatus() {
           if (peer.TailscaleIPs) {
             const peerName = peer.DNSName ? peer.DNSName.split('.')[0] : peer.HostName;
             const peerOS = peer.OS || 'Unknown';
+            const isOnline = peer.Online === true;
             peer.TailscaleIPs.forEach(ip => {
-              newCache[ip.toLowerCase()] = { name: peerName, os: peerOS };
+              newCache[ip.toLowerCase()] = { name: peerName, os: peerOS, isOnline };
             });
           }
         }
@@ -71,10 +72,19 @@ function getActivePeers() {
     const uniquePeers = {};
     for (const [ip, data] of Object.entries(peerCache)) {
         if (!uniquePeers[data.name]) {
-            uniquePeers[data.name] = { name: data.name, os: data.os, ip };
+            uniquePeers[data.name] = { name: data.name, os: data.os, ip, isOnline: data.isOnline };
         }
     }
     return Object.values(uniquePeers);
+}
+
+function getMe() {
+    const ips = getSelfIps();
+    return {
+        ip: ips.length > 0 ? ips[0] : null,
+        name: selfName,
+        dnsName: selfDnsName
+    };
 }
 
 function getSelfIps() {
@@ -92,6 +102,7 @@ function getSelfDnsName() {
 }
 
 module.exports = {
+  getMe,
   getDeviceNameByIp,
   getActivePeers,
   getSelfIps,
