@@ -216,6 +216,10 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
             else if (newFilename.endsWith('.py')) lang = 'python';
             else if (newFilename.endsWith('.ts')) lang = 'typescript';
             else if (newFilename.endsWith('.cpp')) lang = 'cpp';
+            else if (newFilename.endsWith('.lua')) lang = 'lua';
+            else if (newFilename.endsWith('.go')) lang = 'go';
+            else if (newFilename.endsWith('.rb')) lang = 'ruby';
+            else if (newFilename.endsWith('.pl')) lang = 'perl';
             
             socket.emit('sandbox:create_file', { channelId, sandboxId, filename: newFilename.trim(), language: lang });
             setNewFilename('');
@@ -316,12 +320,15 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
                                 }}
                                 className="bg-transparent text-white text-xs sm:text-sm px-2 sm:px-3 py-1.5 focus:outline-none appearance-none cursor-pointer"
                             >
-                                <option value="javascript">JS</option>
-                                <option value="typescript">TS</option>
-                                <option value="html">HTML</option>
-                                <option value="python">PY</option>
-                                <option value="go">Go</option>
-                                <option value="cpp">C++</option>
+                                <option className="bg-[#0a0a0c] text-white" value="javascript">JS</option>
+                                <option className="bg-[#0a0a0c] text-white" value="typescript">TS</option>
+                                <option className="bg-[#0a0a0c] text-white" value="html">HTML</option>
+                                <option className="bg-[#0a0a0c] text-white" value="python">PY</option>
+                                <option className="bg-[#0a0a0c] text-white" value="go">Go</option>
+                                <option className="bg-[#0a0a0c] text-white" value="cpp">C++</option>
+                                <option className="bg-[#0a0a0c] text-white" value="lua">Lua</option>
+                                <option className="bg-[#0a0a0c] text-white" value="ruby">Ruby</option>
+                                <option className="bg-[#0a0a0c] text-white" value="perl">Perl</option>
                             </select>
                         </div>
                         <div className="flex items-center bg-black/50 border border-white/10 rounded-lg overflow-hidden">
@@ -330,8 +337,8 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
                                 onChange={(e) => setRunMode(e.target.value as 'file' | 'project')}
                                 className="bg-transparent text-emerald-400 font-bold text-xs sm:text-sm px-2 sm:px-3 py-1.5 focus:outline-none appearance-none cursor-pointer"
                             >
-                                <option value="file">Run Active File</option>
-                                <option value="project">Run Full Stack</option>
+                                <option className="bg-[#0a0a0c] text-emerald-400" value="file">Run Active File</option>
+                                <option className="bg-[#0a0a0c] text-emerald-400" value="project">Run Full Stack</option>
                             </select>
                             <button 
                                 onClick={runCode}
@@ -348,8 +355,8 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
                                 onChange={(e) => setPreviewMode(e.target.value as 'multi' | 'single')}
                                 className="bg-transparent text-white/70 text-xs sm:text-sm px-2 py-1.5 focus:outline-none appearance-none cursor-pointer"
                             >
-                                <option value="multi">App Preview</option>
-                                <option value="single">Single File</option>
+                                <option className="bg-[#0a0a0c]" value="multi">App Preview</option>
+                                <option className="bg-[#0a0a0c]" value="single">Single File</option>
                             </select>
                         </div>
                         <div className="flex items-center gap-1 bg-black/30 p-1 rounded-lg border border-white/5">
