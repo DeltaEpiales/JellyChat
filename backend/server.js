@@ -674,6 +674,85 @@ io.on('connection', async (socket) => {
         });
     });
 
+    socket.on('sandbox:execute_project', ({ channelId, sandboxId, files, runId }) => {
+        if (!runId) runId = Math.random().toString(36).substring(7);
+        const tempDir = path.join(__dirname, 'temp', `proj_${runId}`);
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+        let cmd = '';
+        let hasStartScript = false;
+
+        // Write all files
+        for (const [filename, fileObj] of Object.entries(files)) {
+            const filepath = path.join(tempDir, filename);
+            // Ensure directories exist for nested files if any
+            const dirname = path.dirname(filepath);
+            if (!fs.existsSync(dirname)) fs.mkdirSync(dirname, { recursive: true });
+            fs.writeFileSync(filepath, fileObj.code);
+        }
+
+        if (files['package.json']) {
+            cmd = 'npm install && npm start';
+            hasStartScript = true;
+        } else if (files['main.py']) {
+            cmd = 'python3 main.py';
+            hasStartScript = true;
+        } else if (files['index.js']) {
+            cmd = 'node index.js';
+            hasStartScript = true;
+        } else if (files['main.cpp']) {
+            cmd = 'g++ *.cpp -o main.exe && ./main.exe';
+            hasStartScript = true;
+        } else if (files['index.html']) {
+            io.to(socket.id).emit('sandbox:execute_result', {
+                channelId,
+                sandboxId,
+                logs: ['> Static Web Project Detected.', '> App Preview is ready. Check the Preview tab!']
+            });
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+            return;
+        }
+
+        if (!hasStartScript) {
+            io.to(socket.id).emit('sandbox:execute_result', {
+                channelId,
+                sandboxId,
+                logs: ['[ERROR] No entry point found (e.g. main.py, index.js, package.json)']
+            });
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
+            return;
+        }
+
+        const child = exec(cmd, { cwd: tempDir, timeout: 30000 }, (error, stdout, stderr) => {
+            const logs = [];
+            if (error) {
+                if (error.killed) {
+                    logs.push(`\n[Execution Timeout]`);
+                } else if (error.code) {
+                    logs.push(`\n[Exited with code ${error.code}]`);
+                }
+            }
+
+            io.to(socket.id).emit('sandbox:execute_result', {
+                channelId,
+                sandboxId,
+                logs
+            });
+
+            try {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            } catch(e) {}
+        });
+
+        child.stdout.on('data', (data) => {
+            io.to(socket.id).emit('sandbox:execute_stream', { channelId, sandboxId, output: data.toString() });
+        });
+        
+        child.stderr.on('data', (data) => {
+            io.to(socket.id).emit('sandbox:execute_stream', { channelId, sandboxId, output: data.toString() });
+        });
+    });
+
     socket.on('agent:get_models', async () => {
         try {
             const settings = await db.getSettings();

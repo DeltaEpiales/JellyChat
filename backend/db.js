@@ -251,20 +251,27 @@ function saveSandboxState(channelId, sandboxId, state) {
 
 function loadSandboxStates() {
     return new Promise((resolve, reject) => {
-        db.all(`SELECT channel_id, sandbox_id, state_json FROM sandbox_states`, (err, rows) => {
-            if (err) reject(err);
-            else {
-                const sandboxes = {};
-                for (const row of rows) {
-                    if (!sandboxes[row.channel_id]) sandboxes[row.channel_id] = {};
-                    try {
-                        sandboxes[row.channel_id][row.sandbox_id] = JSON.parse(row.state_json);
-                    } catch (e) {
-                        console.error('Failed to parse sandbox state JSON for', row.channel_id, row.sandbox_id);
+        db.serialize(() => {
+            db.all(`SELECT channel_id, sandbox_id, state_json FROM sandbox_states`, (err, rows) => {
+                if (err) {
+                    if (err.code === 'SQLITE_ERROR' && err.message.includes('no such table')) {
+                        resolve({}); // Table doesn't exist yet, return empty
+                    } else {
+                        reject(err);
                     }
+                } else {
+                    const sandboxes = {};
+                    for (const row of rows) {
+                        if (!sandboxes[row.channel_id]) sandboxes[row.channel_id] = {};
+                        try {
+                            sandboxes[row.channel_id][row.sandbox_id] = JSON.parse(row.state_json);
+                        } catch (e) {
+                            console.error('Failed to parse sandbox state JSON for', row.channel_id, row.sandbox_id);
+                        }
+                    }
+                    resolve(sandboxes);
                 }
-                resolve(sandboxes);
-            }
+            });
         });
     });
 }

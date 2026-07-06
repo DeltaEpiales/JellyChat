@@ -40,6 +40,8 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
     const [output, setOutput] = useState<string[]>([]);
     const [isRunning, setIsRunning] = useState(false);
     const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
+    const [runMode, setRunMode] = useState<'file' | 'project'>('file');
+    const [previewMode, setPreviewMode] = useState<'multi' | 'single'>('multi');
     
     const [pointers, setPointers] = useState<Record<string, PointerData>>({});
     const [remoteCursors, setRemoteCursors] = useState<Record<string, any>>({});
@@ -192,14 +194,18 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
     const runCode = () => {
         setIsRunning(true);
         setOutput(['> Sandbox Executing on Host Machine...']);
-        const lang = files[activeFile]?.language || 'javascript';
-        const c = files[activeFile]?.code || '';
-        if (lang === 'html') {
-            setOutput(['> Web Preview Updated.']);
-            setIsRunning(false);
-            return;
+        if (runMode === 'project') {
+            socket.emit('sandbox:execute_project', { channelId, sandboxId, files });
+        } else {
+            const lang = files[activeFile]?.language || 'javascript';
+            const c = files[activeFile]?.code || '';
+            if (lang === 'html') {
+                setOutput(['> Web Preview Updated.']);
+                setIsRunning(false);
+                return;
+            }
+            socket.emit('sandbox:execute', { channelId, sandboxId, language: lang, code: c });
         }
-        socket.emit('sandbox:execute', { channelId, sandboxId, language: lang, code: c });
     };
     
     const handleCreateFile = () => {
@@ -223,7 +229,51 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
     };
     
     const handleSwitchFile = (filename: string) => {
+        setActiveFile(filename);
         socket.emit('sandbox:switch_file', { channelId, sandboxId, filename });
+    };
+
+    const getPreviewHtml = () => {
+        if (previewMode === 'single') {
+            return activeFile && files[activeFile] ? files[activeFile].code : '';
+        }
+
+        let htmlCode = '';
+        let cssCode = '';
+        let jsCode = '';
+
+        if (files['index.html']) {
+            htmlCode = files['index.html'].code;
+        } else {
+            const htmlFile = Object.entries(files).find(([name]) => name.endsWith('.html'));
+            if (htmlFile) htmlCode = htmlFile[1].code;
+            else htmlCode = '<div style="color:white;font-family:sans-serif;padding:20px;">No HTML file found. Create index.html to see preview.</div>';
+        }
+
+        Object.entries(files).forEach(([name, file]) => {
+            if (name.endsWith('.css')) cssCode += `\n/* ${name} */\n${file.code}`;
+            if (name.endsWith('.js')) jsCode += `\n/* ${name} */\n${file.code}`;
+        });
+
+        if (cssCode) {
+            const styleTag = `\n<style>\n${cssCode}\n</style>\n`;
+            if (htmlCode.includes('</head>')) {
+                htmlCode = htmlCode.replace('</head>', `${styleTag}</head>`);
+            } else {
+                htmlCode = styleTag + htmlCode;
+            }
+        }
+
+        if (jsCode) {
+            const scriptTag = `\n<script>\n${jsCode}\n</script>\n`;
+            if (htmlCode.includes('</body>')) {
+                htmlCode = htmlCode.replace('</body>', `${scriptTag}</body>`);
+            } else {
+                htmlCode = htmlCode + scriptTag;
+            }
+        }
+
+        return htmlCode;
     };
 
     return (
@@ -255,31 +305,53 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
                                 Preview
                             </button>
                         </div>
-                        <select 
-                            value={activeFile && files[activeFile] ? files[activeFile].language : 'javascript'}
-                            onChange={(e) => {
-                                if (activeFile) {
-                                    setFiles(prev => ({ ...prev, [activeFile]: { ...prev[activeFile], language: e.target.value } }));
-                                    socket.emit('sandbox:update_file', { channelId, sandboxId, filename: activeFile, language: e.target.value });
-                                }
-                            }}
-                            className="bg-black/50 border border-white/10 rounded-lg text-white text-xs sm:text-sm px-2 sm:px-3 py-1.5 focus:outline-none focus:border-theme/50 max-w-[100px] sm:max-w-none"
-                        >
-                            <option value="javascript">JS</option>
-                            <option value="typescript">TS</option>
-                            <option value="html">HTML</option>
-                            <option value="python">PY</option>
-                            <option value="go">Go</option>
-                            <option value="cpp">C++</option>
-                        </select>
-                        <button 
-                            onClick={runCode}
-                            disabled={isRunning}
-                            className="flex items-center gap-1 sm:gap-2 bg-theme/20 hover:bg-theme/30 text-theme-text-alt px-3 sm:px-4 py-1.5 rounded-lg transition-all font-bold tracking-wide bouncy-hover text-xs sm:text-sm"
-                        >
-                            {isRunning ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
-                            <span className="hidden sm:inline">RUN</span>
-                        </button>
+                        <div className="flex items-center bg-black/50 border border-white/10 rounded-lg overflow-hidden max-w-[100px] sm:max-w-none">
+                            <select 
+                                value={activeFile && files[activeFile] ? files[activeFile].language : 'javascript'}
+                                onChange={(e) => {
+                                    if (activeFile) {
+                                        setFiles(prev => ({ ...prev, [activeFile]: { ...prev[activeFile], language: e.target.value } }));
+                                        socket.emit('sandbox:update_file', { channelId, sandboxId, filename: activeFile, language: e.target.value });
+                                    }
+                                }}
+                                className="bg-transparent text-white text-xs sm:text-sm px-2 sm:px-3 py-1.5 focus:outline-none appearance-none cursor-pointer"
+                            >
+                                <option value="javascript">JS</option>
+                                <option value="typescript">TS</option>
+                                <option value="html">HTML</option>
+                                <option value="python">PY</option>
+                                <option value="go">Go</option>
+                                <option value="cpp">C++</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center bg-black/50 border border-white/10 rounded-lg overflow-hidden">
+                            <select
+                                value={runMode}
+                                onChange={(e) => setRunMode(e.target.value as 'file' | 'project')}
+                                className="bg-transparent text-emerald-400 font-bold text-xs sm:text-sm px-2 sm:px-3 py-1.5 focus:outline-none appearance-none cursor-pointer"
+                            >
+                                <option value="file">Run Active File</option>
+                                <option value="project">Run Full Stack</option>
+                            </select>
+                            <button 
+                                onClick={runCode}
+                                disabled={isRunning}
+                                className="flex items-center gap-1 sm:gap-2 bg-theme/20 hover:bg-theme/30 text-theme-text-alt px-3 sm:px-4 py-1.5 transition-all font-bold tracking-wide bouncy-hover text-xs sm:text-sm border-l border-white/10"
+                            >
+                                {isRunning ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
+                                <span className="hidden sm:inline">RUN</span>
+                            </button>
+                        </div>
+                        <div className="flex items-center bg-black/50 border border-white/10 rounded-lg overflow-hidden">
+                            <select
+                                value={previewMode}
+                                onChange={(e) => setPreviewMode(e.target.value as 'multi' | 'single')}
+                                className="bg-transparent text-white/70 text-xs sm:text-sm px-2 py-1.5 focus:outline-none appearance-none cursor-pointer"
+                            >
+                                <option value="multi">App Preview</option>
+                                <option value="single">Single File</option>
+                            </select>
+                        </div>
                         <div className="flex items-center gap-1 bg-black/30 p-1 rounded-lg border border-white/5">
                             <button onClick={() => setIsFileExplorerOpen(!isFileExplorerOpen)} className={`p-1.5 transition-colors ${isFileExplorerOpen ? 'bg-theme/20 text-theme-text-alt' : 'text-white/50 hover:text-white hover:bg-white/5'} rounded-md`} title="Toggle File Explorer">
                                 <PanelLeft size={16} />
@@ -417,8 +489,8 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
                             />
                         </div>
                         <div className={`${activeTab === 'preview' ? 'block h-full w-full' : 'hidden'} bg-white`}>
-                            <iframe 
-                                srcDoc={activeFile && files[activeFile] ? files[activeFile].code : ''}
+                                <iframe 
+                                    srcDoc={getPreviewHtml()}
                                 className="w-full h-full border-none"
                                 sandbox="allow-scripts allow-same-origin allow-modals"
                                 title="Sandbox Preview"
