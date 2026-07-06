@@ -66,7 +66,7 @@ Jellychat is a comprehensive, self-hosted communication environment designed to 
 ### 1. Configuration
 Create a `.env` file within the `backend` directory using the following parameters:
 
-\`\`\`env
+```env
 # Server Port
 PORT=3000
 
@@ -81,7 +81,7 @@ TAILSCALE_TAILNET=your_tailnet_name_here # e.g., yourname@github or tailnet-xyz.
 COMFYUI_URL=http://your_comfyui_ip:8188
 OPENWEBUI_URL=http://your_openwebui_ip:3000
 OPENWEBUI_API_KEY=your_api_key_here
-\`\`\`
+```
 
 *(Note: If utilizing ComfyUI, place the `workflow.json` file in the backend directory.)*
 
@@ -89,17 +89,17 @@ OPENWEBUI_API_KEY=your_api_key_here
 The application requires running both the backend server and the frontend client. VAPID keys for push notifications are generated automatically upon initial startup.
 
 **Start the Backend:**
-\`\`\`bash
+```bash
 cd backend
 npm install
 npm start
-\`\`\`
+```
 
 **Start the Frontend:**
-\`\`\`bash
+```bash
 cd frontend
 npm install
 npm run dev
-\`\`\`
+```
 
 Navigate to the provided local IP address in a web browser on any device within the Tailnet. For optimal mobile experience, use the "Add to Home Screen" option in your mobile browser.
