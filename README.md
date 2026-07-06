@@ -5,7 +5,7 @@
 <h1 align="center">Jellychat</h1>
 
 <p align="center">
-  <strong>A local-first, privacy-focused chat and collaborative IDE platform built for your home lab and Tailscale network.</strong>
+  <strong>A self-hosted, privacy-focused communication and collaboration platform built for Tailscale networks.</strong>
 </p>
 
 <p align="center">
@@ -15,53 +15,44 @@
   <img src="https://img.shields.io/badge/SQLite-07405E?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite" />
 </p>
 
-## What is Jellychat?
-Jellychat is a self-hosted communication hub built to run seamlessly over a private Tailscale network. We wanted to build something that bridges the gap between secure messaging and advanced features like collaborative programming, group video calls, shared whiteboards, retro arcade emulation, and direct AI integrations—all running locally on your own hardware without relying on cloud providers.
+## Overview
+Jellychat is a comprehensive, self-hosted communication environment designed to operate over private Tailscale networks. It consolidates secure messaging, real-time collaborative development, group video conferencing, emulation, and localized AI integrations into a single platform. It is designed to run entirely on user-owned hardware without relying on external cloud providers.
 
-## Features
+## Core Features
 
 ### Real-Time Messaging & Media
-- **Rich Media:** Drag-and-drop file uploads, inline images, and full Markdown support.
-- **Ephemeral Messages:** Set a self-destruct timer (30s to 24h) for messages that automatically vanish from the server and clients once time is up.
-- **Organization:** Threaded direct replies and emoji reactions.
-- **Direct Messages (E2EE):** Private 1-on-1 DMs are natively encrypted using the browser's Web Crypto API (AES-GCM). The server only holds public keys to persist device identities.
-- **P2P Large File Transfer:** Send massive files (movies, ROMs, ISOs) directly between clients using WebRTC Data Channels. Zero server storage footprint.
+- **Rich Media & Markdown:** Supports file uploads, inline images, and complete Markdown formatting.
+- **Ephemeral Messaging:** Includes configurable self-destruct timers (30 seconds to 24 hours) for automatic message deletion across clients and servers.
+- **End-to-End Encrypted DMs:** Direct 1-on-1 messaging is natively encrypted in the browser utilizing the Web Crypto API, ensuring server-side privacy.
+- **P2P Large File Transfers:** Utilizes WebRTC Data Channels to transfer large files directly between clients, bypassing server storage.
 
-### Collaborative Sandbox & Agent IDE
-- **Multi-File Workspace:** Instantly spin up sandboxed environments to pair-program with peers. The new side navigation bar lets you create, switch, and delete multiple files (`.js`, `.html`, `.css`, `.py`) on the fly.
-- **Live Previewer & Terminal:** Run scripts and natively render HTML layouts in an isolated sandbox frame, with a built-in bottom console terminal to view backend logs and execution output.
-- **AI Auto-Injection:** An integrated AI programming assistant directly understands your active workspace context. Bypassing markdown entirely, the agent utilizes a native `<sandbox_update>` XML protocol to define structural file changes that seamlessly inject into the environment without needing to click an "Apply" button.
-- **Glassmorphic Responsive UI:** A stunning, hardware-accelerated "liquid glass" interface. Completely mobile responsive with collapsible File and Terminal panels (via `PanelLeft` and `PanelBottom` icons) and a floating Agent pull-tab to maximize coding real-estate on small devices.
+### Collaborative Sandbox & AI Agent IDE
+- **Multi-File Workspace:** Provides sandboxed environments for pair-programming. Features a file explorer for creating, switching, and deleting files, with state automatically persisted to the database.
+- **Live Previewer & Terminal:** Includes an isolated iframe for native code rendering and a built-in console terminal for monitoring backend logs and execution outputs.
+- **AI Auto-Injection:** Integrates an AI programming assistant that comprehends workspace context and automatically injects structural file modifications without requiring manual copy-pasting.
+- **Responsive UI:** Features a mobile-optimized interface with collapsible panels and a floating AI module for efficient screen space utilization.
 
 ### Voice, Video & Streaming
-- **WebRTC Voice Channels:** Jump into a voice channel and hang out. Features **Push-To-Talk (PTT)** toggles and a dynamic Web Audio API **Audio Visualizer** that makes avatars glow when speaking.
-- **Group Video Calls & Screen Share:** Share your webcam (with mobile front/back flip support) or broadcast your desktop directly to the channel.
-- **Broadcaster Previews & Native Fullscreen:** See local muted preview tiles before transmitting. On mobile, tap any stream to use the native OS media player for true horizontal fullscreen viewing.
-- **Sidebar Facepile:** See who is hanging out in a channel at a glance with overlapping avatars.
+- **WebRTC Voice Channels:** Supports real-time audio channels with Push-To-Talk (PTT) functionality and a Web Audio API visualizer.
+- **Group Video & Screen Share:** Enables webcam sharing and direct screen broadcasting, including front/back camera toggling on mobile devices.
+- **Native Fullscreen & Facepile:** Displays active participants via overlapping avatars and supports native fullscreen video playback on mobile.
 
-### Advanced Integrations
-- **Built-in Emulator Arcade:** A retro gaming emulator is embedded directly into the chat. Drop legally sourced ROMs into the `/roms` folder and play together via Netplay. Includes automatic Cloud Save States so you can resume where you left off.
-- **Collaborative Whiteboarding:** A high-performance, multiplayer canvas that syncs live mouse pointers and brush strokes instantly. Support for private whiteboards inside 1-on-1 direct messages.
-- **Local AI Integrations:** 
-  - **Image Generation:** Connects directly to a local ComfyUI instance. Drop a prompt into the chat, and the backend processes it using your `workflow.json` (e.g., Stable Diffusion).
-  - **@Jellybot:** Mention `@Jellybot` in chat to trigger your local LLM (via Open WebUI API). Supports streaming responses with a typewriter effect, fully contained within your network.
-
-### Gaming Hub & Integrations
-- **Game Server Browser:** Automatically detects and queries active game servers hosted on your local network (supports Source engine, Minecraft, Palworld, and more).
-- **Steam Rich Presence:** Opt-in to broadcast your current Steam game directly into the chat.
-- **Server Deep-Dive Inspector:** Click on active game servers to view rich metadata, player lists, and current maps, backed by dynamically fetched Steam Workshop/App banners.
-- **Modpack & Workshop Sync Hub:** Easily align mods with peers before gaming! Drop a Steam Workshop Collection URL to automatically generate a rich chat embed with a "Subscribe in Steam" direct link (`steam://` protocol) for instant syncing.
+### Advanced Integrations & Gaming
+- **Built-in Arcade Emulator:** Integrates retro gaming capabilities via a `/roms` directory. Supports Netplay and automated cloud save states.
+- **Live Whiteboarding:** Provides a synchronized, multiplayer canvas for real-time drawing and diagramming.
+- **Local AI Integrations:** Supports local ComfyUI instances for image generation and Open WebUI integrations for localized LLM interactions (`@Jellybot`).
+- **Game Server Browser:** Automatically detects and queries active game servers hosted on the local network.
+- **Modpack Sync Hub:** Generates rich embeds with direct Steam Workshop subscription links (`steam://` protocol) from provided collection URLs.
 
 ### Admin & Network Management
-- **Tailscale Guest Invites:** Generate time-limited (or permanent) Tailscale guest invite keys directly from the UI. These automatically tag users as `tag:guest` for ACL management, letting friends connect without exposing open ports.
-- **Profile Management:** No passwords required. The Admin Dashboard lets you assign IP addresses to customized profiles. When friends connect, they get their assigned display names, avatars, and admin privileges based on their device.
-- **Custom Statuses:** Set Online, Idle, DND, or Offline statuses with custom text.
+- **Tailscale Guest Invites:** Facilitates the generation of time-limited Tailscale guest keys directly from the administrative UI.
+- **Passwordless Profiles:** Assigns display names, avatars, and privileges based on device IP addresses.
+- **Custom Statuses:** Allows users to set customizable presence states (Online, Idle, DND).
 
 ### Progressive Web App (PWA)
-- Fully installable on mobile and desktop devices. 
-- Features VAPID web-push subscriptions for background notifications (iOS supported).
-- Touch-action CSS optimizations prevent clunky web-zooming for a native-app feel.
-- Voice memos support with interactive audio waveforms via WaveSurfer.js.
+- Fully installable across mobile and desktop operating systems.
+- Implements VAPID web-push subscriptions for background notifications (iOS compatible).
+- Supports voice memos utilizing WaveSurfer.js for interactive audio waveforms.
 
 ---
 
@@ -69,20 +60,20 @@ Jellychat is a self-hosted communication hub built to run seamlessly over a priv
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- A [Tailscale](https://tailscale.com/) account and configured Tailnet
-- *(Optional)* [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (for AI images) and [Open WebUI](https://github.com/open-webui/open-webui) (for @Jellybot)
+- A configured [Tailscale](https://tailscale.com/) account and Tailnet
+- *(Optional)* [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (for AI image generation) and [Open WebUI](https://github.com/open-webui/open-webui) (for LLM integration)
 
 ### 1. Configuration
-Create a `.env` file in the `backend` directory with the following variables:
+Create a `.env` file within the `backend` directory using the following parameters:
 
 \`\`\`env
-# The port the backend server will listen on
+# Server Port
 PORT=3000
 
-# Database path relative to the backend root directory
+# Database Path
 DB_PATH=./database.sqlite
 
-# Tailscale settings for managing guest invites
+# Tailscale settings for guest invites
 TAILSCALE_API_KEY=your_tailscale_api_key_here
 TAILSCALE_TAILNET=your_tailnet_name_here # e.g., yourname@github or tailnet-xyz.ts.net
 
@@ -92,13 +83,10 @@ OPENWEBUI_URL=http://your_openwebui_ip:3000
 OPENWEBUI_API_KEY=your_api_key_here
 \`\`\`
 
-*(Note: If using ComfyUI, place your `workflow.json` in the backend directory.)*
+*(Note: If utilizing ComfyUI, place the `workflow.json` file in the backend directory.)*
 
-### 2. VAPID Keys for Push Notifications
-On first run, the backend will automatically generate `vapidKeys.json` in the `backend` directory. No manual setup is required unless you are migrating servers.
-
-### 3. Installation & Running
-You'll need to run both the backend server and the frontend client.
+### 2. Installation & Running
+The application requires running both the backend server and the frontend client. VAPID keys for push notifications are generated automatically upon initial startup.
 
 **Start the Backend:**
 \`\`\`bash
@@ -114,4 +102,4 @@ npm install
 npm run dev
 \`\`\`
 
-Open the provided local IP address in your browser on any device on your network. To get the native mobile experience, tap "Add to Home Screen" from your mobile browser (required for iOS push notifications).
+Navigate to the provided local IP address in a web browser on any device within the Tailnet. For optimal mobile experience, use the "Add to Home Screen" option in your mobile browser.
