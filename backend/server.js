@@ -627,6 +627,18 @@ io.on('connection', async (socket) => {
         } else if (language === 'cpp') {
             filename = `sandbox_${runId}.cpp`;
             cmd = `g++ ${filename} -o sandbox_${runId}.exe && ./sandbox_${runId}.exe`;
+        } else if (language === 'lua') {
+            filename = `sandbox_${runId}.lua`;
+            cmd = `lua ${filename}`;
+        } else if (language === 'go') {
+            filename = `sandbox_${runId}.go`;
+            cmd = `go run ${filename}`;
+        } else if (language === 'ruby') {
+            filename = `sandbox_${runId}.rb`;
+            cmd = `ruby ${filename}`;
+        } else if (language === 'perl') {
+            filename = `sandbox_${runId}.pl`;
+            cmd = `perl ${filename}`;
         } else {
             io.to(socket.id).emit('sandbox:execute_result', {
                 channelId,
@@ -702,6 +714,18 @@ io.on('connection', async (socket) => {
             hasStartScript = true;
         } else if (files['main.cpp']) {
             cmd = 'g++ *.cpp -o main.exe && ./main.exe';
+            hasStartScript = true;
+        } else if (files['main.lua']) {
+            cmd = 'lua main.lua';
+            hasStartScript = true;
+        } else if (files['main.go']) {
+            cmd = 'go run main.go';
+            hasStartScript = true;
+        } else if (files['main.rb']) {
+            cmd = 'ruby main.rb';
+            hasStartScript = true;
+        } else if (files['main.pl']) {
+            cmd = 'perl main.pl';
             hasStartScript = true;
         } else if (files['index.html']) {
             io.to(socket.id).emit('sandbox:execute_result', {
