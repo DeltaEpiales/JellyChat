@@ -251,7 +251,7 @@ function saveSandboxState(channelId, sandboxId, state) {
 
 function loadSandboxStates() {
     return new Promise((resolve, reject) => {
-        db.all(\`SELECT channel_id, sandbox_id, state_json FROM sandbox_states\`, (err, rows) => {
+        db.all(`SELECT channel_id, sandbox_id, state_json FROM sandbox_states`, (err, rows) => {
             if (err) reject(err);
             else {
                 const sandboxes = {};
@@ -270,7 +270,7 @@ function loadSandboxStates() {
 }
 
 function cleanupOldSandboxes() {
-    db.run(\`DELETE FROM sandbox_states WHERE updated_at < datetime('now', '-30 days')\`);
+    db.run(`DELETE FROM sandbox_states WHERE updated_at < datetime('now', '-30 days')`);
 }
 
 function resolveIPs(identifier) {

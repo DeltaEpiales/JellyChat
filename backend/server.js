@@ -537,13 +537,16 @@ io.on('connection', async (socket) => {
   // --- Collaborative Sandbox Events ---
   socket.on('sandbox:create', ({ channelId, sandboxId, language, code, files, activeFile }) => {
       if (!activeSandboxes[channelId]) activeSandboxes[channelId] = {};
-      if (files && activeFile) {
-          activeSandboxes[channelId][sandboxId] = { files, activeFile };
-      } else {
-          activeSandboxes[channelId][sandboxId] = { files: { 'index.js': { language, code } }, activeFile: 'index.js' };
+      
+      if (!activeSandboxes[channelId][sandboxId]) {
+          if (files && activeFile) {
+              activeSandboxes[channelId][sandboxId] = { files, activeFile };
+          } else {
+              activeSandboxes[channelId][sandboxId] = { files: { 'index.js': { language: language || 'javascript', code: code || '' } }, activeFile: 'index.js' };
+          }
+          db.saveSandboxState(channelId, sandboxId, activeSandboxes[channelId][sandboxId]).catch(console.error);
       }
-      db.saveSandboxState(channelId, sandboxId, activeSandboxes[channelId][sandboxId]).catch(console.error);
-      io.emit('sandbox:update', { channelId, sandboxId, ...activeSandboxes[channelId][sandboxId] });
+      socket.emit('sandbox:update', { channelId, sandboxId, ...activeSandboxes[channelId][sandboxId] });
   });
 
   socket.on('sandbox:update_file', ({ channelId, sandboxId, filename, code, language }) => {
