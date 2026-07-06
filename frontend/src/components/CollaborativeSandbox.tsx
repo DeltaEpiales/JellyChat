@@ -49,7 +49,13 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<any>(null);
     const decorationsCollection = useRef<any>(null);
+    const isRemoteUpdate = useRef<boolean>(false);
     
+    const activeFileRef = useRef(activeFile);
+    useEffect(() => {
+        activeFileRef.current = activeFile;
+    }, [activeFile]);
+
     useEffect(() => {
         // Request current state or initialize
         socket.emit('sandbox:create', { channelId, sandboxId, files, activeFile });
@@ -79,7 +85,37 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
             }
         };
 
+        const handleUpdateFileReceive = (data: { channelId: string, sandboxId: string, filename: string, code: string, changes?: any[] }) => {
+            if (data.channelId === channelId && data.sandboxId === sandboxId) {
+                setFiles(prev => {
+                    const next = { ...prev };
+                    if (!next[data.filename]) next[data.filename] = { language: 'javascript', code: '' };
+                    else next[data.filename] = { ...next[data.filename] }; // Deep clone to trigger React update properly
+                    
+                    if (data.changes && data.filename === activeFileRef.current && editorRef.current) {
+                        try {
+                            isRemoteUpdate.current = true;
+                            editorRef.current.getModel().applyEdits(data.changes.map((c: any) => ({
+                                range: c.range,
+                                text: c.text,
+                                forceMoveMarkers: true
+                            })));
+                            next[data.filename].code = editorRef.current.getValue();
+                        } catch (e) {
+                            next[data.filename].code = data.code;
+                        } finally {
+                            isRemoteUpdate.current = false;
+                        }
+                    } else {
+                        next[data.filename].code = data.code;
+                    }
+                    return next;
+                });
+            }
+        };
+
         socket.on('sandbox:update', handleUpdate);
+        socket.on('sandbox:update_file_receive', handleUpdateFileReceive);
         socket.on('sandbox:pointer_receive', handlePointer);
         socket.on('sandbox:cursor_receive', handleCursor);
         socket.on('sandbox:execute_stream', (data: any) => {
@@ -129,6 +165,7 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
         
         return () => {
             socket.off('sandbox:update', handleUpdate);
+            socket.off('sandbox:update_file_receive', handleUpdateFileReceive);
             socket.off('sandbox:pointer_receive', handlePointer);
             socket.off('sandbox:cursor_receive', handleCursor);
             clearInterval(cleanupInterval);
@@ -185,10 +222,12 @@ export function CollaborativeSandbox({ socket, channelId, sandboxId, onClose, is
         });
     };
 
-    const handleCodeChange = (newCode: string | undefined) => {
+    const handleCodeChange = (newCode: string | undefined, event: any) => {
         if (newCode === undefined || !activeFile) return;
+        if (isRemoteUpdate.current) return;
+        
         setFiles(prev => ({ ...prev, [activeFile]: { ...prev[activeFile], code: newCode } }));
-        socket.emit('sandbox:update_file', { channelId, sandboxId, filename: activeFile, code: newCode });
+        socket.emit('sandbox:update_file', { channelId, sandboxId, filename: activeFile, code: newCode, changes: event.changes });
     };
 
     const runCode = () => {

@@ -549,14 +549,14 @@ io.on('connection', async (socket) => {
       socket.emit('sandbox:update', { channelId, sandboxId, ...activeSandboxes[channelId][sandboxId] });
   });
 
-  socket.on('sandbox:update_file', ({ channelId, sandboxId, filename, code, language }) => {
+  socket.on('sandbox:update_file', ({ channelId, sandboxId, filename, code, language, changes }) => {
       if (activeSandboxes[channelId] && activeSandboxes[channelId][sandboxId]) {
           const sb = activeSandboxes[channelId][sandboxId];
           if (!sb.files[filename]) sb.files[filename] = { language: language || 'javascript', code: '' };
           if (code !== undefined) sb.files[filename].code = code;
           if (language !== undefined) sb.files[filename].language = language;
           db.saveSandboxState(channelId, sandboxId, sb).catch(console.error);
-          socket.broadcast.emit('sandbox:update', { channelId, sandboxId, files: sb.files, activeFile: sb.activeFile });
+          socket.broadcast.emit('sandbox:update_file_receive', { channelId, sandboxId, filename, code, language, changes });
       }
   });
 
