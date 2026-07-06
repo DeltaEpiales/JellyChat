@@ -5,7 +5,7 @@
 <h1 align="center">Jellychat</h1>
 
 <p align="center">
-  <strong>A local-first, privacy-focused chat platform built for your home lab and Tailscale network.</strong>
+  <strong>A local-first, privacy-focused chat and collaborative IDE platform built for your home lab and Tailscale network.</strong>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 </p>
 
 ## What is Jellychat?
-Jellychat is a self-hosted communication hub built to run seamlessly over a private Tailscale network. We wanted to build something that bridges the gap between secure messaging and advanced features like group video calls, shared whiteboards, retro arcade emulation, and direct AI integrations—all running locally on your own hardware without relying on cloud providers.
+Jellychat is a self-hosted communication hub built to run seamlessly over a private Tailscale network. We wanted to build something that bridges the gap between secure messaging and advanced features like collaborative programming, group video calls, shared whiteboards, retro arcade emulation, and direct AI integrations—all running locally on your own hardware without relying on cloud providers.
 
 ## Features
 
@@ -26,6 +26,12 @@ Jellychat is a self-hosted communication hub built to run seamlessly over a priv
 - **Organization:** Threaded direct replies and emoji reactions.
 - **Direct Messages (E2EE):** Private 1-on-1 DMs are natively encrypted using the browser's Web Crypto API (AES-GCM). The server only holds public keys to persist device identities.
 - **P2P Large File Transfer:** Send massive files (movies, ROMs, ISOs) directly between clients using WebRTC Data Channels. Zero server storage footprint.
+
+### Collaborative Sandbox & Agent IDE
+- **Multi-File Workspace:** Instantly spin up sandboxed environments to pair-program with peers. The new side navigation bar lets you create, switch, and delete multiple files (`.js`, `.html`, `.css`, `.py`) on the fly.
+- **Live Previewer & Terminal:** Run scripts and natively render HTML layouts in an isolated sandbox frame, with a built-in bottom console terminal to view backend logs and execution output.
+- **AI Auto-Injection:** An integrated AI programming assistant directly understands your active workspace context. Bypassing markdown entirely, the agent utilizes a native `<sandbox_update>` XML protocol to define structural file changes that seamlessly inject into the environment without needing to click an "Apply" button.
+- **Glassmorphic Responsive UI:** A stunning, hardware-accelerated "liquid glass" interface. Completely mobile responsive with collapsible File and Terminal panels (via `PanelLeft` and `PanelBottom` icons) and a floating Agent pull-tab to maximize coding real-estate on small devices.
 
 ### Voice, Video & Streaming
 - **WebRTC Voice Channels:** Jump into a voice channel and hang out. Features **Push-To-Talk (PTT)** toggles and a dynamic Web Audio API **Audio Visualizer** that makes avatars glow when speaking.
@@ -69,7 +75,7 @@ Jellychat is a self-hosted communication hub built to run seamlessly over a priv
 ### 1. Configuration
 Create a `.env` file in the `backend` directory with the following variables:
 
-```env
+\`\`\`env
 # The port the backend server will listen on
 PORT=3000
 
@@ -84,7 +90,7 @@ TAILSCALE_TAILNET=your_tailnet_name_here # e.g., yourname@github or tailnet-xyz.
 COMFYUI_URL=http://your_comfyui_ip:8188
 OPENWEBUI_URL=http://your_openwebui_ip:3000
 OPENWEBUI_API_KEY=your_api_key_here
-```
+\`\`\`
 
 *(Note: If using ComfyUI, place your `workflow.json` in the backend directory.)*
 
@@ -95,17 +101,17 @@ On first run, the backend will automatically generate `vapidKeys.json` in the `b
 You'll need to run both the backend server and the frontend client.
 
 **Start the Backend:**
-```bash
+\`\`\`bash
 cd backend
 npm install
 npm start
-```
+\`\`\`
 
 **Start the Frontend:**
-```bash
+\`\`\`bash
 cd frontend
 npm install
 npm run dev
-```
+\`\`\`
 
 Open the provided local IP address in your browser on any device on your network. To get the native mobile experience, tap "Add to Home Screen" from your mobile browser (required for iOS push notifications).

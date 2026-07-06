@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Socket } from 'socket.io-client';
-import { Mic, MicOff, Headphones, PhoneOff, MonitorUp, Video, VideoOff, Keyboard } from 'lucide-react';
+import { Volume2, Mic, ChevronDown, ChevronUp, MicOff, Headphones, PhoneOff, MonitorUp, Video, VideoOff, Keyboard, RotateCw } from 'lucide-react';
 
 export interface VoiceUser {
     socketId: string;
@@ -21,6 +21,52 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
     const [connectedUsers, setConnectedUsers] = useState<VoiceUser[]>([]);
     const [isMuted, setIsMuted] = useState(false);
     const [isDeafened, setIsDeafened] = useState(false);
+    const [isDocked, setIsDocked] = useState(false);
+    const [pillRotation, setPillRotation] = useState(0);
+    const pillRef = useRef<HTMLDivElement>(null);
+    const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, currentX: 0, currentY: 0, hasMoved: false });
+
+    const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!isDocked || !pillRef.current) return;
+        dragRef.current = {
+            ...dragRef.current,
+            isDragging: true,
+            hasMoved: false,
+            startX: e.clientX,
+            startY: e.clientY,
+        };
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dragRef.current.isDragging || !pillRef.current) return;
+        
+        const dx = e.clientX - dragRef.current.startX;
+        const dy = e.clientY - dragRef.current.startY;
+        
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            dragRef.current.hasMoved = true;
+        }
+        
+        dragRef.current.currentX += dx;
+        dragRef.current.currentY += dy;
+        
+        dragRef.current.startX = e.clientX;
+        dragRef.current.startY = e.clientY;
+        
+        pillRef.current.style.transform = `translate(${dragRef.current.currentX}px, ${dragRef.current.currentY}px) rotate(${pillRotation}deg)`;
+    };
+
+    const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dragRef.current.isDragging) return;
+        dragRef.current.isDragging = false;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        
+        // If they barely moved it, we treat it as a click to expand
+        if (!dragRef.current.hasMoved) {
+            setIsDocked(false);
+        }
+    };
     const [isStreaming, setIsStreaming] = useState(false);
     const [isWebcamOn, setIsWebcamOn] = useState(false);
     const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
@@ -444,34 +490,45 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
     if (!channelId) return null;
 
     return (
-        <div className="absolute bottom-0 left-0 w-full p-4 bg-[#18181b] border-t border-white/5 animate-in slide-in-from-bottom-4 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-50">
-            <div className="flex items-center justify-between">
-                <div className="flex flex-col">
-                    <span className="text-emerald-400 font-bold text-sm flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-                        Voice Connected
-                    </span>
-                    <span className="text-white/50 text-xs truncate max-w-[150px]">{channelName}</span>
-                </div>
-                <div className="flex items-center gap-1.5 md:gap-2">
-                    <button onClick={toggleMute} className={`p-2 rounded-xl transition-all ${isMuted ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Mute Microphone">
+        <>
+            {!isDocked ? (
+                <div key="expanded" className="absolute bottom-24 left-1/2 -translate-x-1/2 w-11/12 max-w-xs md:max-w-sm p-4 glass-card rounded-[2rem] border border-white/10 animate-in slide-in-from-bottom-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)] z-[150] backdrop-blur-3xl bg-[#0a0a0c]/90 flex flex-col gap-4 transition-all duration-300">
+                    <div className="flex flex-col items-center gap-3 w-full">
+                        <div className="flex items-center w-full justify-between gap-3 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="relative w-10 h-10 shrink-0 rounded-full bg-theme/20 flex items-center justify-center text-theme-text-alt shadow-[0_0_15px_var(--color-theme)]">
+                                    <Volume2 size={18} className="animate-pulse" />
+                                    <div className="absolute inset-0 rounded-full border border-theme-text-alt animate-ping opacity-50"></div>
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-theme-text-alt font-bold text-sm tracking-wide">Connected</span>
+                                    <span className="text-white/60 text-xs truncate max-w-[150px] font-medium">{channelName}</span>
+                                </div>
+                            </div>
+                            <button onPointerDown={(e) => { e.stopPropagation(); setIsDocked(true); }} className="p-2 rounded-full hover:bg-white/10 transition-colors text-white/50 hover:text-white shrink-0" title="Dock">
+                                <ChevronDown size={18} />
+                            </button>
+                        </div>
+                    </div>
+                <div className="grid grid-cols-3 gap-2 bg-white/5 p-2 rounded-2xl border border-white/10 w-full shrink-0">
+                    <button onClick={toggleMute} className={`p-2.5 md:p-3 rounded-full transition-all ${isMuted ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Mute Microphone">
                         {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
                     </button>
-                    <button onClick={togglePtt} className={`p-2 rounded-xl transition-all ${isPttEnabled ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-white/10 text-white/50 hover:bg-white/20 hover:text-white'}`} title="Push-to-Talk (Hold 'V')">
+                    <button onClick={togglePtt} className={`p-2.5 md:p-3 rounded-full transition-all ${isPttEnabled ? 'bg-theme-alt/20 text-theme-text-alt hover:bg-theme-alt/30' : 'bg-white/10 text-white/50 hover:bg-white/20 hover:text-white'}`} title="Push-to-Talk (Hold 'V')">
                         <Keyboard size={16} />
                     </button>
-                    <button onClick={toggleDeafen} className={`p-2 rounded-xl transition-all ${isDeafened ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Deafen">
+                    <button onClick={toggleDeafen} className={`p-2.5 md:p-3 rounded-full transition-all ${isDeafened ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-white/10 text-white hover:bg-white/20'}`} title="Deafen">
                         <Headphones size={16} className={isDeafened ? 'opacity-50' : ''} />
                     </button>
                     <button 
                         onClick={toggleScreenShare}
-                        className={`p-3 rounded-xl transition-colors ${isStreaming ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}
+                        className={`p-2.5 md:p-3 rounded-full transition-colors ${isStreaming ? 'bg-theme hover:bg-theme/80 text-white' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}
                     >
                         <MonitorUp size={20} />
                     </button>
                     <button 
                         onClick={toggleWebcam}
-                        className={`p-3 rounded-xl transition-colors ${isWebcamOn ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}
+                        className={`p-2.5 md:p-3 rounded-full transition-colors ${isWebcamOn ? 'bg-theme hover:bg-theme/80 text-white' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}
                         title="Toggle Webcam"
                     >
                         {isWebcamOn ? <Video size={20} /> : <VideoOff size={20} />}
@@ -479,20 +536,19 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                     {isWebcamOn && (
                         <button 
                             onClick={flipCamera}
-                            className="p-3 rounded-xl transition-colors bg-white/5 hover:bg-white/10 text-white/70 md:hidden"
+                            className="p-2.5 md:p-3 rounded-full transition-colors bg-white/5 hover:bg-white/10 text-white/70 md:hidden"
                             title="Flip Camera"
                         >
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
                         </button>
                     )}
-                    <button onClick={onDisconnect} className="p-2 rounded-xl bg-rose-500/20 text-rose-400 hover:bg-rose-500/40 transition-all" title="Disconnect">
+                    <button onClick={onDisconnect} className="p-2.5 md:p-3 rounded-full bg-rose-500 hover:bg-rose-600 shadow-[0_0_15px_rgba(244,63,94,0.5)] text-white ml-auto md:ml-1 shrink-0" title="Disconnect">
                         <PhoneOff size={16} />
                     </button>
                 </div>
-            </div>
             
             {(remoteStreams.size > 0 && Array.from(remoteStreams.values()).some(stream => stream.getVideoTracks().length > 0) || isStreaming || isWebcamOn) && (
-                <div className="mt-3 flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                <div className="flex gap-2 overflow-x-auto px-2 pb-1 custom-scrollbar w-full">
                     {Array.from(remoteStreams.entries()).map(([socketId, stream]) => {
                         const user = connectedUsers.find(u => u.socketId === socketId);
                         const profile = user?.profileId ? profiles.find(p => p.id === user.profileId) : null;
@@ -543,7 +599,7 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                             className={`relative overflow-hidden shrink-0 bg-black cursor-pointer transition-all
                                 ${focusedStreamId === 'local_screen' 
                                     ? 'fixed inset-0 z-[100] shadow-2xl rounded-none border-none' 
-                                    : 'w-64 h-36 rounded-lg border border-emerald-500/50'
+                                    : 'w-64 h-36 rounded-lg border border-theme-alt/50'
                                 }
                                 ${focusedStreamId && focusedStreamId !== 'local_screen' ? 'hidden' : ''}
                             `}
@@ -567,7 +623,7 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                                     ✕
                                 </button>
                             )}
-                            <div className="absolute bottom-2 left-2 bg-emerald-500/80 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1">
+                            <div className="absolute bottom-2 left-2 bg-theme-alt/80 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1">
                                 <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
                                 You (Screen)
                             </div>
@@ -580,7 +636,7 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                             className={`relative overflow-hidden shrink-0 bg-black cursor-pointer transition-all
                                 ${focusedStreamId === 'local_webcam' 
                                     ? 'fixed inset-0 z-[100] shadow-2xl rounded-none border-none' 
-                                    : 'w-64 h-36 rounded-lg border border-indigo-500/50'
+                                    : 'w-64 h-36 rounded-lg border border-theme/50'
                                 }
                                 ${focusedStreamId && focusedStreamId !== 'local_webcam' ? 'hidden' : ''}
                             `}
@@ -604,7 +660,7 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                                     ✕
                                 </button>
                             )}
-                            <div className="absolute bottom-2 left-2 bg-indigo-500/80 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1">
+                            <div className="absolute bottom-2 left-2 bg-theme/80 backdrop-blur text-white text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1">
                                 <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
                                 You (Camera)
                             </div>
@@ -627,7 +683,7 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                     return (
                         <div key={u.socketId} className="flex items-center gap-2 bg-white/5 pr-3 pl-1 py-1 rounded-full border border-white/5 transition-all">
                             <div 
-                                className={`w-6 h-6 shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-[10px] font-bold overflow-hidden transition-all duration-75`} 
+                                className={`w-6 h-6 shrink-0 rounded-full bg-theme/20 text-theme-text/80 flex items-center justify-center text-[10px] font-bold overflow-hidden transition-all duration-75`} 
                                 title={profile ? profile.name : u.name}
                                 style={{ ...glowStyle, borderWidth: isTalking ? '2px' : '0px' }}
                             >
@@ -641,7 +697,95 @@ export function VoiceChannelManager({ socket, channelId, channelName, profiles, 
                         </div>
                     );
                 })}
-            </div>
-        </div>
+                                </div>
+                </div>
+            ) : (
+                <div 
+                    key="pill"
+                    ref={pillRef}
+                    className="fixed bottom-6 right-6 p-2 glass-pill rounded-full border border-white/10 shadow-2xl z-[150] backdrop-blur-3xl bg-[#0a0a0c]/90 flex flex-col items-center gap-3 transition-colors duration-300 cursor-grab active:cursor-grabbing hover:bg-black group shrink-0" 
+                    style={{ touchAction: 'none', width: 'max-content', height: 'max-content', flexShrink: 0, transform: `translate(${dragRef.current.currentX}px, ${dragRef.current.currentY}px) rotate(${pillRotation}deg)` }}
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerCancel={handlePointerUp}
+                >
+                    
+                    {/* Rotate Button */}
+                    <div 
+                        className="w-6 h-6 mt-1 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white cursor-pointer hover:bg-white/20 transition-all shadow-[0_0_10px_rgba(255,255,255,0.1)] active:scale-95"
+                        onPointerDown={(e) => {
+                            e.stopPropagation();
+                            setPillRotation(prev => (prev + 90) % 360);
+                        }}
+                        style={{ transform: `rotate(${-pillRotation}deg)` }}
+                        title="Rotate Pill"
+                    >
+                        <RotateCw size={12} />
+                    </div>
+
+                    {/* Tiny User Stack */}
+                    <div className="flex flex-col items-center -space-y-2">
+                        {connectedUsers.slice(0, 3).map((u, i) => {
+                            const profile = u.profileId ? profiles.find(p => p.id === u.profileId) : null;
+                            const isLocalUser = socket?.id === u.socketId;
+                              const isTalking = isLocalUser && (!isMuted && (!isPttEnabled || pttActive)) && audioLevel > 5;
+                            const glowStyle = isTalking 
+                                ? { boxShadow: `0 0 8px 2px rgba(52, 211, 153, 0.6)`, borderColor: 'rgba(52, 211, 153, 0.8)' } 
+                                : {};
+                            
+                            return (
+                                <div 
+                                    key={u.socketId}
+                                    className="w-8 h-8 rounded-full bg-theme/20 border-2 border-[#0a0a0c] flex items-center justify-center text-xs font-bold overflow-hidden transition-all z-10"
+                                    style={{ ...glowStyle, zIndex: 10 - i, transform: `rotate(${-pillRotation}deg)` }}
+                                >
+                                    {profile && profile.avatar ? (
+                                        <img src={profile.avatar} className="w-full h-full object-cover" />
+                                    ) : (
+                                        (profile ? profile.name : u.name).charAt(0).toUpperCase()
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {connectedUsers.length > 3 && (
+                            <div className="w-8 h-8 rounded-full bg-white/10 border-2 border-[#0a0a0c] flex items-center justify-center text-[10px] text-white/70 font-bold z-0" style={{ transform: `rotate(${-pillRotation}deg)` }}>
+                                +{connectedUsers.length - 3}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="w-6 h-px bg-white/10 my-1 mx-0"></div>
+                    
+                    {/* Quick Mute Toggle */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+                        className={`p-2 rounded-full transition-all ${isMuted ? 'bg-rose-500 text-white' : 'hover:bg-white/10 text-white/70 hover:text-white'}`}
+                        style={{ transform: `rotate(${-pillRotation}deg)` }}
+                    >
+                        {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                    </button>
+                    
+                    {/* Undock Button */}
+                    <button 
+                        className="p-2 rounded-full bg-white/5 text-white/50 group-hover:bg-theme/20 group-hover:text-theme-text-alt transition-all"
+                        style={{ transform: `rotate(${-pillRotation}deg)` }}
+                    >
+                        <ChevronUp size={16} />
+                    </button>
+
+                    <div 
+                        className="w-8 h-8 rounded-full bg-rose-500/80 flex items-center justify-center text-white cursor-pointer hover:bg-rose-500 transition-all shadow-[0_0_15px_rgba(244,63,94,0.4)] mb-1" 
+                        onPointerDown={(e) => { e.stopPropagation(); onDisconnect(); }} 
+                        style={{ transform: `rotate(${-pillRotation}deg)` }}
+                        title="Disconnect"
+                    >
+                        <PhoneOff size={14} />
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
+
+

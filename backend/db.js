@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 
-const dbPath = path.resolve(__dirname, 'chat.db');
+const dbPath = path.resolve(process.cwd(), 'chat.db');
 
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
@@ -40,6 +40,36 @@ function initDb() {
                 jwk TEXT
             )
         `);
+
+        db.run(`
+            CREATE TABLE IF NOT EXISTS web_invites (
+                id TEXT PRIMARY KEY,
+                creator_ip TEXT,
+                max_uses INTEGER DEFAULT 0,
+                uses INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME
+            )
+        `);
+
+        db.run(`CREATE TABLE IF NOT EXISTS funnel_invites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE,
+        passcode TEXT,
+        expires_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        creator_name TEXT
+    )`);
+
+        db.run(`
+            CREATE TABLE IF NOT EXISTS web_sessions (
+                token TEXT PRIMARY KEY,
+                display_name TEXT,
+                invite_id TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
 
         db.run(`
             CREATE TABLE IF NOT EXISTS profiles (
@@ -153,6 +183,14 @@ function initDb() {
             if (!hasIsAdmin) {
                 db.run("ALTER TABLE profiles ADD COLUMN isAdmin INTEGER DEFAULT 0");
             }
+            const hasPrivateKey = columns.some(c => c.name === 'privateKey');
+            if (!hasPrivateKey) {
+                db.run("ALTER TABLE profiles ADD COLUMN privateKey TEXT");
+            }
+            const hasPublicKey = columns.some(c => c.name === 'publicKey');
+            if (!hasPublicKey) {
+                db.run("ALTER TABLE profiles ADD COLUMN publicKey TEXT");
+            }
         });
 
         // TTL / ephemeral messages migration
@@ -180,7 +218,59 @@ function initDb() {
                 UNIQUE(ip, rom_hash)
             )
         `);
+
+        // Sandbox states table
+        db.run(`
+            CREATE TABLE IF NOT EXISTS sandbox_states (
+                channel_id TEXT,
+                sandbox_id TEXT,
+                state_json TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(channel_id, sandbox_id)
+            )
+        `);
     });
+}
+
+function saveSandboxState(channelId, sandboxId, state) {
+    return new Promise((resolve, reject) => {
+        const stateJson = JSON.stringify(state);
+        db.run(
+            `INSERT INTO sandbox_states (channel_id, sandbox_id, state_json, updated_at) 
+             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(channel_id, sandbox_id) 
+             DO UPDATE SET state_json = excluded.state_json, updated_at = CURRENT_TIMESTAMP`,
+            [channelId, sandboxId, stateJson],
+            function (err) {
+                if (err) reject(err);
+                else resolve();
+            }
+        );
+    });
+}
+
+function loadSandboxStates() {
+    return new Promise((resolve, reject) => {
+        db.all(\`SELECT channel_id, sandbox_id, state_json FROM sandbox_states\`, (err, rows) => {
+            if (err) reject(err);
+            else {
+                const sandboxes = {};
+                for (const row of rows) {
+                    if (!sandboxes[row.channel_id]) sandboxes[row.channel_id] = {};
+                    try {
+                        sandboxes[row.channel_id][row.sandbox_id] = JSON.parse(row.state_json);
+                    } catch (e) {
+                        console.error('Failed to parse sandbox state JSON for', row.channel_id, row.sandbox_id);
+                    }
+                }
+                resolve(sandboxes);
+            }
+        });
+    });
+}
+
+function cleanupOldSandboxes() {
+    db.run(\`DELETE FROM sandbox_states WHERE updated_at < datetime('now', '-30 days')\`);
 }
 
 function resolveIPs(identifier) {
@@ -405,6 +495,18 @@ function editMessageAttachment(messageId, type, attachmentUrl, fileName, content
     });
 }
 
+
+function purgeChannelMessages(channelId) {
+    return new Promise((resolve, reject) => {
+        const query = channelId ? 'DELETE FROM messages WHERE channelId = ?' : 'DELETE FROM messages WHERE channelId IS NULL OR channelId = ""';
+        const params = channelId ? [channelId] : [];
+        db.run(query, params, function(err) {
+            if (err) reject(err);
+            else resolve(this.changes);
+        });
+    });
+}
+
 function deleteMessage(messageId) {
     return new Promise((resolve, reject) => {
         db.run('DELETE FROM messages WHERE id = ?', [messageId], (err) => {
@@ -521,6 +623,15 @@ function createProfile(id, name, avatar = null, isAdmin = 0) {
     });
 }
 
+function setProfileAdmin(id, isAdmin) {
+    return new Promise((resolve, reject) => {
+        db.run('UPDATE profiles SET isAdmin = ? WHERE id = ?', [isAdmin, id], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
 function getProfiles() {
     return new Promise((resolve, reject) => {
         db.all('SELECT * FROM profiles', [], (err, rows) => {
@@ -572,7 +683,8 @@ function getDeviceAssignments() {
 
 function pruneExpiredMessages() {
     return new Promise((resolve, reject) => {
-        db.all("SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= datetime('now')", [], (err, rows) => {
+        const nowIso = new Date().toISOString();
+        db.all("SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?", [nowIso], (err, rows) => {
             if (err) return reject(err);
             if (!rows || rows.length === 0) return resolve([]);
             const ids = rows.map(r => r.id);
@@ -637,6 +749,27 @@ function getChannelMessageCounts() {
     });
 }
 
+function deleteAssignment(ip) {
+    return new Promise((resolve, reject) => {
+        db.run('DELETE FROM device_assignments WHERE ip = ?', [ip], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+function deleteProfile(id) {
+    return new Promise((resolve, reject) => {
+        db.run('DELETE FROM profiles WHERE id = ?', [id], (err) => {
+            if (err) return reject(err);
+            db.run('DELETE FROM device_assignments WHERE profileId = ?', [id], (err2) => {
+                if (err2) reject(err2);
+                else resolve();
+            });
+        });
+    });
+}
+
 function getSettings() {
     return new Promise((resolve, reject) => {
         db.all("SELECT key, value FROM settings", [], (err, rows) => {
@@ -664,7 +797,100 @@ function saveSetting(key, value) {
     });
 }
 
+
+function getProfileKeys(profileId) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT publicKey, privateKey FROM profiles WHERE id = ?', [profileId], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function setProfileKeys(profileId, publicKey, privateKey) {
+    return new Promise((resolve, reject) => {
+        db.run('UPDATE profiles SET publicKey = ?, privateKey = ? WHERE id = ?', [publicKey, privateKey, profileId], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+
+function createWebInvite(id, creatorIp, maxUses, expiresAt) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare('INSERT INTO web_invites (id, creator_ip, max_uses, expires_at) VALUES (?, ?, ?, ?)');
+        stmt.run([id, creatorIp, maxUses, expiresAt], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+        stmt.finalize();
+    });
+}
+
+function getWebInvite(id) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT * FROM web_invites WHERE id = ?', [id], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function updateWebInviteUses(id, uses) {
+    return new Promise((resolve, reject) => {
+        db.run('UPDATE web_invites SET uses = ? WHERE id = ?', [uses, id], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+function createWebSession(token, displayName, inviteId) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare('INSERT INTO web_sessions (token, display_name, invite_id) VALUES (?, ?, ?)');
+        stmt.run([token, displayName, inviteId], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+        stmt.finalize();
+        stmt.finalize();
+    });
+}
+
+function createFunnelInvite(token, passcode, expiresAt, creatorName) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare('INSERT INTO funnel_invites (token, passcode, expires_at, creator_name) VALUES (?, ?, ?, ?)');
+        stmt.run([token, passcode, expiresAt, creatorName], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+        stmt.finalize();
+    });
+}
+
+function getFunnelInvite(token) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT * FROM funnel_invites WHERE token = ?', [token], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function getWebSession(token) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT * FROM web_sessions WHERE token = ?', [token], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+
 module.exports = {
+    getProfileKeys,
+    setProfileKeys,
     saveMessage,
     getMessages,
     addReaction,
@@ -672,6 +898,7 @@ module.exports = {
     editMessage,
     editMessageAttachment,
     deleteMessage,
+    purgeChannelMessages,
     getChannels,
     createChannel,
     editChannel,
@@ -687,15 +914,29 @@ module.exports = {
     getAllPublicKeys,
     getProfiles,
     getProfileById,
+    setProfileAdmin,
     getDeviceAssignment,
     createProfile,
     getDeviceAssignments,
     assignDevice,
+    deleteProfile,
+    deleteAssignment,
     pruneExpiredMessages,
     saveGameState,
     getGameState,
     getLastMessagePerChannel,
     getChannelMessageCounts,
     getSettings,
-    saveSetting
+    saveSetting,
+    createWebInvite,
+    getWebInvite,
+    updateWebInviteUses,
+    createWebSession,
+    getWebSession,
+    createFunnelInvite,
+    getFunnelInvite,
+    saveSandboxState,
+    loadSandboxStates,
+    cleanupOldSandboxes
 };
+

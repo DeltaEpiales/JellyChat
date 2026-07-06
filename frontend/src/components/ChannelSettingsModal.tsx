@@ -23,7 +23,7 @@ export function ChannelSettingsModal({ onClose, channel, onSave, onDelete }: Cha
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-[#18181b] border border-white/10 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="glass-panel border border-white/10 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between p-4 border-b border-white/5 bg-white/5">
                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
                         <Settings size={20} className="text-white/50" />
@@ -40,16 +40,16 @@ export function ChannelSettingsModal({ onClose, channel, onSave, onDelete }: Cha
                         <div className="flex gap-3">
                             <button 
                                 onClick={() => setType('text')}
-                                className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${type === 'text' ? 'border-indigo-500 bg-indigo-500/10 text-white' : 'border-white/5 bg-white/5 text-white/50 hover:bg-white/10'}`}
+                                className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${type === 'text' ? 'border-theme bg-theme/10 text-white' : 'border-white/5 bg-white/5 text-white/50 hover:bg-white/10'}`}
                             >
-                                <Hash size={24} className={type === 'text' ? 'text-indigo-400' : ''} />
+                                <Hash size={24} className={type === 'text' ? 'text-theme-text' : ''} />
                                 <span className="font-semibold text-sm">Text</span>
                             </button>
                             <button 
                                 onClick={() => setType('voice')}
-                                className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${type === 'voice' ? 'border-emerald-500 bg-emerald-500/10 text-white' : 'border-white/5 bg-white/5 text-white/50 hover:bg-white/10'}`}
+                                className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${type === 'voice' ? 'border-theme-alt bg-theme-alt/10 text-white' : 'border-white/5 bg-white/5 text-white/50 hover:bg-white/10'}`}
                             >
-                                <Volume2 size={24} className={type === 'voice' ? 'text-emerald-400' : ''} />
+                                <Volume2 size={24} className={type === 'voice' ? 'text-theme-text-alt' : ''} />
                                 <span className="font-semibold text-sm">Voice</span>
                             </button>
                         </div>
@@ -62,7 +62,7 @@ export function ChannelSettingsModal({ onClose, channel, onSave, onDelete }: Cha
                             value={name}
                             onChange={e => setName(e.target.value)}
                             placeholder="e.g. general"
-                            className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white placeholder-white/30 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                            className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white placeholder-white/30 focus:outline-none focus:border-theme focus:ring-1 focus:ring-theme transition-all"
                         />
                     </div>
 
@@ -73,7 +73,7 @@ export function ChannelSettingsModal({ onClose, channel, onSave, onDelete }: Cha
                             value={description}
                             onChange={e => setDescription(e.target.value)}
                             placeholder="Optional topic or description"
-                            className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white placeholder-white/30 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                            className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white placeholder-white/30 focus:outline-none focus:border-theme focus:ring-1 focus:ring-theme transition-all"
                         />
                     </div>
                 </div>
@@ -100,7 +100,7 @@ export function ChannelSettingsModal({ onClose, channel, onSave, onDelete }: Cha
                         <button 
                             onClick={handleSave}
                             disabled={!name.trim()}
-                            className="px-6 py-2 text-sm font-semibold bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(99,102,241,0.4)]"
+                            className="px-6 py-2 text-sm font-semibold bg-theme text-white rounded-xl hover:bg-theme/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(99,102,241,0.4)]"
                         >
                             {isEditing ? 'Save Changes' : 'Create'}
                         </button>

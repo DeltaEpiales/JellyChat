@@ -102,26 +102,26 @@ const GAME_COLORS: Record<string, { bg: string; border: string; text: string; gl
     dayz:           { bg: 'from-stone-500/15',   border: 'hover:border-stone-500/40',   text: 'text-stone-400',   glow: 'rgba(168,162,158,0.15)' },
     satisfactory:   { bg: 'from-violet-500/15',  border: 'hover:border-violet-500/40',  text: 'text-violet-400',  glow: 'rgba(167,139,250,0.15)' },
     factorio:       { bg: 'from-yellow-500/15',  border: 'hover:border-yellow-500/40',  text: 'text-yellow-400',  glow: 'rgba(250,204,21,0.15)' },
-    spaceengineers: { bg: 'from-indigo-500/15',  border: 'hover:border-indigo-500/40',  text: 'text-indigo-400',  glow: 'rgba(129,140,248,0.15)' },
+    spaceengineers: { bg: 'from-theme/15',  border: 'hover:border-theme/40',  text: 'text-theme-text',  glow: 'rgba(129,140,248,0.15)' },
     dst:            { bg: 'from-amber-600/15',   border: 'hover:border-amber-600/40',   text: 'text-amber-500',   glow: 'rgba(217,119,6,0.15)' },
     l4d2:           { bg: 'from-red-600/15',     border: 'hover:border-red-600/40',     text: 'text-red-500',     glow: 'rgba(220,38,38,0.15)' },
     sdtd:           { bg: 'from-zinc-500/15',    border: 'hover:border-zinc-500/40',    text: 'text-zinc-400',    glow: 'rgba(161,161,170,0.15)' },
 };
 
-const DEFAULT_COLOR = { bg: 'from-indigo-500/15', border: 'hover:border-indigo-500/40', text: 'text-indigo-400', glow: 'rgba(99,102,241,0.15)' };
+const DEFAULT_COLOR = { bg: 'from-theme/15', border: 'hover:border-theme/40', text: 'text-theme-text', glow: 'rgba(99,102,241,0.15)' };
 
 /* ───── Scanning Wave Animation Component ───── */
 function ScanningOverlay({ progress, scanningText }: { progress: number; scanningText: string }) {
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="relative flex flex-col items-center gap-6 p-10 rounded-3xl bg-[#13131f]/90 border border-indigo-500/20 shadow-[0_0_80px_rgba(99,102,241,0.15)] max-w-sm w-full">
+            <div className="relative flex flex-col items-center gap-6 p-10 rounded-3xl bg-[#13131f]/90 border border-theme/20 shadow-[0_0_80px_rgba(99,102,241,0.15)] max-w-sm w-full">
                 {/* Radar sweep */}
                 <div className="relative w-36 h-36">
                     {/* Concentric rings */}
                     {[1, 2, 3].map(i => (
                         <div
                             key={i}
-                            className="absolute inset-0 rounded-full border border-indigo-500/10"
+                            className="absolute inset-0 rounded-full border border-theme/10"
                             style={{
                                 transform: `scale(${i * 0.33})`,
                             }}
@@ -144,12 +144,12 @@ function ScanningOverlay({ progress, scanningText }: { progress: number; scannin
                         }}
                     />
                     {/* Center dot */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-400 rounded-full shadow-[0_0_12px_rgba(99,102,241,0.6)]" />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-theme-text rounded-full shadow-[0_0_12px_rgba(99,102,241,0.6)]" />
                     {/* Blip dots appearing */}
                     {[0, 1, 2, 3, 4].map(i => (
                         <div
                             key={i}
-                            className="absolute w-1.5 h-1.5 bg-indigo-400 rounded-full"
+                            className="absolute w-1.5 h-1.5 bg-theme-text rounded-full"
                             style={{
                                 top: `${25 + Math.sin(i * 1.3) * 30}%`,
                                 left: `${25 + Math.cos(i * 1.7) * 35}%`,
@@ -215,7 +215,7 @@ function ServerDetailsModal({ server, onClose }: { server: GameServer; onClose: 
                             <div className="absolute inset-0 bg-gradient-to-t from-[#13131f] to-transparent"></div>
                         </>
                     ) : (
-                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20"></div>
+                        <div className="absolute inset-0 bg-gradient-to-br from-theme/20 to-purple-500/20"></div>
                     )}
                     
                     <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-black/60 rounded-full text-white/70 transition-colors backdrop-blur-md">
@@ -276,7 +276,7 @@ function ServerDetailsModal({ server, onClose }: { server: GameServer; onClose: 
                             <div>
                                 <div className="text-[10px] uppercase font-bold tracking-widest text-white/40 mb-1">Host</div>
                                 <div className="text-sm font-medium text-white/90 flex items-center gap-2">
-                                    <MonitorUp size={14} className="text-indigo-400" />
+                                    <MonitorUp size={14} className="text-theme-text" />
                                     {server.hostName}
                                 </div>
                             </div>
@@ -285,7 +285,7 @@ function ServerDetailsModal({ server, onClose }: { server: GameServer; onClose: 
                         {server.joinUrl && (
                             <a
                                 href={server.joinUrl}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)]"
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-theme hover:bg-theme/80 text-white font-bold transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)]"
                             >
                                 <ExternalLink size={18} />
                                 Join Server
@@ -308,7 +308,7 @@ function ServerDetailsModal({ server, onClose }: { server: GameServer; onClose: 
                             {server.players.list && server.players.list.length > 0 ? (
                                 server.players.list.map((player, idx) => (
                                     <div key={idx} className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-sm font-medium text-white/90 flex items-center gap-3">
-                                        <div className="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-xs shrink-0">
+                                        <div className="w-6 h-6 rounded-full bg-theme/20 flex items-center justify-center text-theme-text text-xs shrink-0">
                                             {player.charAt(0).toUpperCase()}
                                         </div>
                                         {player}
@@ -469,9 +469,9 @@ export function ServerBrowser() {
         return (
             <div className="flex-1 flex flex-col items-center justify-center p-12 text-white/50 space-y-4 min-h-[400px]">
                 <div className="relative">
-                    <Wifi className="text-indigo-400 animate-pulse" size={48} />
+                    <Wifi className="text-theme-text animate-pulse" size={48} />
                     <div className="absolute inset-0 animate-ping">
-                        <Wifi className="text-indigo-400/30" size={48} />
+                        <Wifi className="text-theme-text/30" size={48} />
                     </div>
                 </div>
                 <span className="text-lg font-medium animate-pulse">Scanning Tailscale Network...</span>
@@ -488,7 +488,7 @@ export function ServerBrowser() {
             <div className="mb-4 mt-2 pl-2 flex items-start justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-white tracking-tight mb-1 flex items-center gap-3">
-                        <Gamepad2 className="text-indigo-400" size={32} />
+                        <Gamepad2 className="text-theme-text" size={32} />
                         Network Game Servers
                     </h1>
                     <p className="text-white/50 text-sm flex items-center gap-2 flex-wrap">
@@ -506,7 +506,7 @@ export function ServerBrowser() {
                     <button
                         onClick={handleDeepScan}
                         disabled={isScanning}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/20 rounded-xl transition-all text-xs font-medium disabled:opacity-50 hover:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-theme/15 hover:bg-theme/25 text-theme-text border border-theme/20 rounded-xl transition-all text-xs font-medium disabled:opacity-50 hover:shadow-[0_0_20px_rgba(99,102,241,0.2)]"
                         title="Force a full network rescan"
                     >
                         <Zap size={14} />
@@ -531,7 +531,7 @@ export function ServerBrowser() {
                     </span>
                     <span className="w-px h-4 bg-white/10" />
                     <span className="flex items-center gap-1.5">
-                        <Users size={12} className="text-indigo-400" />
+                        <Users size={12} className="text-theme-text" />
                         <span className="text-white/70 font-bold">{totalPlayers}</span> player{totalPlayers !== 1 ? 's' : ''} online
                     </span>
                     {steamInfo?.installed && (
@@ -570,7 +570,7 @@ export function ServerBrowser() {
                                     <span className="text-emerald-400 text-[9px] font-bold bg-emerald-400/10 px-1.5 py-0.5 rounded shrink-0">INSTALLED</span>
                                 )}
                                 {game.hasJoinUrl && (
-                                    <ExternalLink size={10} className="text-indigo-400/50 shrink-0" />
+                                    <ExternalLink size={10} className="text-theme-text/50 shrink-0" />
                                 )}
                             </div>
                         ))}
@@ -587,7 +587,7 @@ export function ServerBrowser() {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search servers..."
-                            className="bg-white/5 border border-white/10 rounded-lg text-white/80 text-xs pl-8 pr-3 py-1.5 w-44 placeholder:text-white/25 focus:outline-none focus:border-indigo-500/30 transition-colors"
+                            className="bg-white/5 border border-white/10 rounded-lg text-white/80 text-xs pl-8 pr-3 py-1.5 w-44 placeholder:text-white/25 focus:outline-none focus:border-theme/30 transition-colors"
                         />
                     </div>
                     {uniqueGameTypes.length > 1 && (
@@ -595,7 +595,7 @@ export function ServerBrowser() {
                             <span className="w-px h-5 bg-white/10" />
                             <button
                                 onClick={() => setFilterGame('all')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterGame === 'all' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/20' : 'bg-white/5 text-white/50 border border-white/5 hover:bg-white/10'}`}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterGame === 'all' ? 'bg-theme/20 text-theme-text border border-theme/20' : 'bg-white/5 text-white/50 border border-white/5 hover:bg-white/10'}`}
                             >
                                 All ({servers.length})
                             </button>
@@ -636,7 +636,7 @@ export function ServerBrowser() {
                         <button
                             onClick={handleDeepScan}
                             disabled={isScanning}
-                            className="flex items-center gap-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 border border-indigo-500/20 px-4 py-2.5 rounded-xl transition-all font-medium text-sm disabled:opacity-50"
+                            className="flex items-center gap-2 bg-theme/20 hover:bg-theme/30 text-theme-text border border-theme/20 px-4 py-2.5 rounded-xl transition-all font-medium text-sm disabled:opacity-50"
                         >
                             <Zap size={16} />
                             Deep Scan Network
@@ -795,7 +795,7 @@ export function ServerBrowser() {
                                                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all text-xs font-bold shrink-0 ${
                                                     server.joinUrl.startsWith('steam://')
                                                         ? 'bg-[#1b2838] hover:bg-[#2a475e] text-[#66c0f4] border border-[#66c0f4]/20 shadow-[0_0_15px_rgba(102,192,244,0.1)] hover:shadow-[0_0_20px_rgba(102,192,244,0.2)]'
-                                                        : 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)]'
+                                                        : 'bg-theme hover:bg-theme/80 text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)]'
                                                 }`}
                                                 title="Join Game"
                                                 onClick={(e) => e.stopPropagation()}

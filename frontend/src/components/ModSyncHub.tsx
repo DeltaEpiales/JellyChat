@@ -79,7 +79,8 @@ export function ModSyncHub({ onClose, onSendInvite }: ModSyncHubProps) {
                 name: dirHandle.name,
                 fileCount: files.length,
                 totalSize: totalSize,
-                manifest: files
+                manifest: files,
+                handle: dirHandle
             });
             onClose();
             
@@ -95,7 +96,7 @@ export function ModSyncHub({ onClose, onSendInvite }: ModSyncHubProps) {
             <div className="bg-[#13131f] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
                 <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                        <Package size={20} className="text-indigo-400" />
+                        <Package size={20} className="text-theme-text" />
                         Modpack Sync
                     </h2>
                     <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors">
@@ -114,14 +115,14 @@ export function ModSyncHub({ onClose, onSendInvite }: ModSyncHubProps) {
                         <div className="grid grid-cols-1 gap-4">
                             <button 
                                 onClick={() => setMode('folder')}
-                                className="flex flex-col items-start gap-2 p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-indigo-500/50 transition-all group text-left"
+                                className="flex flex-col items-start gap-2 p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-theme/50 transition-all group text-left"
                             >
                                 <div className="flex items-center gap-3 w-full">
-                                    <div className="w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                                    <div className="w-10 h-10 rounded-lg bg-theme/20 text-theme-text flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
                                         <FolderSync size={20} />
                                     </div>
                                     <div>
-                                        <h3 className="font-bold text-white group-hover:text-indigo-300 transition-colors">Local Folder Sync (P2P)</h3>
+                                        <h3 className="font-bold text-white group-hover:text-theme-text/80 transition-colors">Local Folder Sync (P2P)</h3>
                                         <p className="text-xs text-white/50">Mirror a local folder (like .minecraft/mods) directly to peers.</p>
                                     </div>
                                 </div>
@@ -151,7 +152,7 @@ export function ModSyncHub({ onClose, onSendInvite }: ModSyncHubProps) {
                             </p>
                             <button 
                                 onClick={handleFolderSelect}
-                                className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] flex items-center justify-center gap-2"
+                                className="w-full py-3 bg-theme hover:bg-theme/80 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_var(--color-theme-glow)] hover:shadow-[0_0_30px_var(--color-theme-glow)] flex items-center justify-center gap-2"
                             >
                                 <FolderSync size={18} />
                                 Select Folder to Share

@@ -20,7 +20,17 @@ interface DrawData {
     isMarker?: boolean;
 }
 
+const stringToColor = (str: string) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const hue = Math.abs(hash % 360);
+    return `hsl(${hue}, 70%, 55%)`;
+};
+
 interface PointerData {
+    socketId: string;
     ip: string;
     name: string;
     x: number; // 0 to 1 relative
@@ -165,7 +175,7 @@ export function CollaborativeWorkspace({ socket, onClose, roomId }: Collaborativ
         const handlePointer = (data: PointerData) => {
             setPointers(prev => ({
                 ...prev,
-                [data.ip]: { ...data, lastUpdate: Date.now() }
+                [data.socketId]: { ...data, lastUpdate: Date.now() }
             }));
         };
         
@@ -189,9 +199,9 @@ export function CollaborativeWorkspace({ socket, onClose, roomId }: Collaborativ
             setPointers(prev => {
                 const updated = { ...prev };
                 let changed = false;
-                for (const ip in updated) {
-                    if (now - updated[ip].lastUpdate > 3000) {
-                        delete updated[ip];
+                for (const sid in updated) {
+                    if (now - updated[sid].lastUpdate > 3000) {
+                        delete updated[sid];
                         changed = true;
                     }
                 }
@@ -504,27 +514,27 @@ export function CollaborativeWorkspace({ socket, onClose, roomId }: Collaborativ
                         <div className="hidden md:block w-px h-6 bg-white/10"></div>
                         
                         {/* Animation Controls */}
-                        <div className="flex items-center gap-1 bg-indigo-500/10 border border-indigo-500/20 p-1 rounded-xl">
+                        <div className="flex items-center gap-1 bg-theme/10 border border-theme/20 p-1 rounded-xl">
                             <button 
                                 onClick={() => changeFrame(currentFrameIndex - 1)}
                                 disabled={currentFrameIndex === 0}
-                                className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
+                                className="p-1.5 hover:bg-theme/20 text-theme-text disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
                             >
                                 <ChevronLeft size={16} />
                             </button>
-                            <span className="text-xs font-mono text-indigo-300 w-12 text-center font-bold">
+                            <span className="text-xs font-mono text-theme-text/80 w-12 text-center font-bold">
                                 {currentFrameIndex + 1}/{frames.length}
                             </span>
                             <button 
                                 onClick={() => changeFrame(currentFrameIndex + 1)}
                                 disabled={currentFrameIndex === frames.length - 1}
-                                className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
+                                className="p-1.5 hover:bg-theme/20 text-theme-text disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
                             >
                                 <ChevronRight size={16} />
                             </button>
                             <button 
                                 onClick={addFrame}
-                                className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors ml-1"
+                                className="p-1.5 hover:bg-theme/20 text-theme-text rounded-lg transition-colors ml-1"
                                 title="Add Frame"
                             >
                                 <Plus size={16} />
@@ -578,9 +588,9 @@ export function CollaborativeWorkspace({ socket, onClose, roomId }: Collaborativ
                         />
                         
                         {/* Render Virtual Pointers */}
-                        {Object.entries(pointers).map(([ip, ptr]) => (
+                        {Object.entries(pointers).map(([sid, ptr]) => (
                             <div 
-                                key={ip}
+                                key={sid}
                                 className="absolute pointer-events-none transition-all duration-75"
                                 style={{
                                     left: `${ptr.x * 100}%`,
@@ -588,8 +598,8 @@ export function CollaborativeWorkspace({ socket, onClose, roomId }: Collaborativ
                                     transform: 'translate(-2px, -2px)'
                                 }}
                             >
-                                <MousePointer2 size={24} className="text-white drop-shadow-md fill-indigo-500" />
-                                <div className="mt-1 ml-4 bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-lg whitespace-nowrap">
+                                <MousePointer2 size={24} className="text-white drop-shadow-md" style={{ fill: stringToColor(sid) }} />
+                                <div className="mt-1 ml-4 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-lg whitespace-nowrap" style={{ backgroundColor: stringToColor(sid) }}>
                                     {ptr.name}
                                 </div>
                             </div>
