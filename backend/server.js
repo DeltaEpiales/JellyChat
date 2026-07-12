@@ -834,21 +834,52 @@ io.on('connection', async (socket) => {
                 })
             });
 
-            if (!response.ok) {
+            if (!response.ok || (response.headers.get('content-type') && response.headers.get('content-type').includes('text/html'))) {
                 socket.emit('agent:stream', { error: await response.text() });
                 return;
             }
 
             let fullResponse = '';
+            const reader = response.body;
             const decoder = new TextDecoder();
-            for await (const chunk of response.body) {
+            let firstChunkChecked = false;
+            let rawAccumulator = '';
+
+            for await (const chunk of reader) {
                 const text = decoder.decode(chunk, { stream: true });
+                rawAccumulator += text;
+
+                // Check the very first chunk for HTML or JSON error responses
+                if (!firstChunkChecked) {
+                    firstChunkChecked = true;
+                    const trimmed = rawAccumulator.trim();
+                    if (trimmed.startsWith('<!') || trimmed.startsWith('<html')) {
+                        console.error(`[Agent] Received HTML instead of SSE stream`);
+                        socket.emit('agent:stream', { error: `⚠️ AI server returned an error page. The model "${model}" may not be loaded. Check LM Studio.` });
+                        return;
+                    }
+                    if (trimmed.startsWith('{')) {
+                        try {
+                            const errObj = JSON.parse(trimmed);
+                            if (errObj.error || errObj.detail) {
+                                const errText = errObj.error?.message || errObj.detail || JSON.stringify(errObj);
+                                socket.emit('agent:stream', { error: `⚠️ AI Error: ${errText}` });
+                                return;
+                            }
+                        } catch(e) {}
+                    }
+                }
+
                 const lines = text.split('\n').filter(line => line.trim().startsWith('data:'));
                 for (const line of lines) {
-                    const jsonStr = line.replace('data: ', '').trim();
+                    const jsonStr = line.replace(/^data:\s*/, '').trim();
                     if (jsonStr === '[DONE]') continue;
                     try {
                         const parsed = JSON.parse(jsonStr);
+                        if (parsed.error) {
+                            socket.emit('agent:stream', { error: `⚠️ AI Error: ${parsed.error?.message || parsed.error}` });
+                            return;
+                        }
                         const delta = parsed.choices?.[0]?.delta?.content || '';
                         const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
                         
@@ -865,9 +896,12 @@ io.on('connection', async (socket) => {
                             fullResponse += delta;
                             socket.emit('agent:stream', { chunk: delta, fullContent: fullResponse });
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                        console.warn(`[Agent] Failed to parse SSE chunk:`, jsonStr.substring(0, 200));
+                    }
                 }
             }
+            console.log(`[Agent] Stream ended, fullResponse length=${fullResponse.length}`);
             socket.emit('agent:stream_done');
             
             // Auto-apply sandbox code
@@ -1174,15 +1208,35 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
             contextMessages = await db.getMessages(socket.tailscaleIp, recipientId, null, 20);
         }
 
-        const chatHistory = contextMessages.map(m => ({
-            role: m.senderId === 'mimir' ? 'assistant' : 'user',
-            content: `${m.senderName}: ${m.content}`
-        }));
+        const filteredHistory = contextMessages.filter(m => m.id !== triggerMessage.id && m.content);
+        const rawHistory = filteredHistory.map(m => {
+            let content = m.content || '';
+            // Strip <think> reasoning blocks from history to save context
+            content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            // Skip empty/error/warning fallback messages
+            if (!content || content.includes('I got an empty response') || content.startsWith('⚠️')) return null;
+            // Strip @agent tags from history to prevent OpenWebUI re-routing
+            content = content.replace(/@\w+/g, '').trim();
+            if (!content) return null;
+            // Truncate very long messages to prevent context overflow
+            if (content.length > 2000) content = content.substring(0, 2000) + '...[truncated]';
+            return {
+                role: (!m.senderId.includes('.') && m.senderId !== 'system') ? 'assistant' : 'user',
+                content: content
+            };
+        }).filter(Boolean);
 
-        chatHistory.push({
-            role: 'system',
-            content: `You are ${agentName}, a helpful AI assistant operating within the Jellychat interface. Your primary purpose is to assist users with their questions and tasks.`
-        });
+        // Merge consecutive messages with the same role (some Jinja templates break on these)
+        const chatHistory = [];
+        for (const msg of rawHistory) {
+            if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === msg.role) {
+                chatHistory[chatHistory.length - 1].content += '\n' + msg.content;
+            } else {
+                chatHistory.push({ ...msg });
+            }
+        }
+
+        let systemPrompt = `You are ${agentName}, a helpful AI assistant operating within the Jellychat interface. Your primary purpose is to assist users with their questions and tasks.`;
 
         // --- Sandbox Context Injection ---
         let mentionedSandboxId = null;
@@ -1191,10 +1245,7 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
             mentionedSandboxId = sandboxMatch[0].toUpperCase();
             if (activeSandboxes[channelId] && activeSandboxes[channelId][mentionedSandboxId]) {
                 const sbData = activeSandboxes[channelId][mentionedSandboxId];
-                chatHistory.push({
-                    role: 'system',
-                    content: `The user mentioned sandbox ${mentionedSandboxId}. Here is its current code (language: ${sbData.language}):\n\`\`\`${sbData.language}\n${sbData.code}\n\`\`\`\n\nIf the user asks you to modify or fix it, simply output the new code wrapped in a markdown code block. Do NOT include any other code blocks.`
-                });
+                systemPrompt += `\n\nThe user mentioned sandbox ${mentionedSandboxId}. Here is its current code (language: ${sbData.language}):\n\`\`\`${sbData.language}\n${sbData.code}\n\`\`\`\n\nIf the user asks you to modify or fix it, simply output the new code wrapped in a markdown code block. Do NOT include any other code blocks.`;
             }
         }
 
@@ -1226,20 +1277,24 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
         }
         if (!model) model = 'llama3';
 
+        const finalMessages = [
+            { role: 'system', content: systemPrompt },
+            ...chatHistory,
+            { role: 'user', content: cleanPrompt }
+        ];
+        console.log(`[${agentName}] Sending ${finalMessages.length} messages to model=${model}, roles=[${finalMessages.map(m=>m.role).join(',')}]`);
+
         const response = await fetch(`${openWebUiUrl}/api/chat/completions`, {
             method: 'POST',
             headers,
             body: JSON.stringify({
                 model: model,
-                messages: [
-                    ...chatHistory,
-                    { role: 'user', content: cleanPrompt }
-                ],
+                messages: finalMessages,
                 stream: true
             })
         });
 
-        if (!response.ok) {
+        if (!response.ok || (response.headers.get('content-type') && response.headers.get('content-type').includes('text/html'))) {
             const errorText = await response.text();
             console.error('AI Error:', response.statusText, errorText);
             const errorMessage = `Error: ${response.statusText}\n\`\`\`json\n${errorText}\n\`\`\``;
@@ -1255,16 +1310,57 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
             let fullResponse = '';
             const reader = response.body;
             const decoder = new TextDecoder();
+            let firstChunkChecked = false;
+            let rawAccumulator = '';
 
             for await (const chunk of reader) {
                 const text = decoder.decode(chunk, { stream: true });
+                rawAccumulator += text;
+
+                // Check the very first chunk for HTML or JSON error responses
+                if (!firstChunkChecked) {
+                    firstChunkChecked = true;
+                    const trimmed = rawAccumulator.trim();
+                    if (trimmed.startsWith('<!') || trimmed.startsWith('<html')) {
+                        console.error(`[${agentName}] Received HTML instead of SSE stream`);
+                        const errorMsg = `⚠️ AI server returned an error page. The model "${model}" may not be loaded in LM Studio.`;
+                        await db.editMessage(botMessage.id, errorMsg);
+                        io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
+                        return;
+                    }
+                    if (trimmed.startsWith('{')) {
+                        try {
+                            const errObj = JSON.parse(trimmed);
+                            if (errObj.error || errObj.detail) {
+                                const errText = errObj.error?.message || errObj.detail || JSON.stringify(errObj);
+                                console.error(`[${agentName}] API error:`, errText);
+                                const errorMsg = `⚠️ AI Error: ${errText}`;
+                                await db.editMessage(botMessage.id, errorMsg);
+                                io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
+                                return;
+                            }
+                        } catch(e) { /* not complete JSON yet, continue as SSE */ }
+                    }
+                }
+
                 const lines = text.split('\n').filter(line => line.trim().startsWith('data:'));
 
                 for (const line of lines) {
-                    const jsonStr = line.replace('data: ', '').trim();
+                    const jsonStr = line.replace(/^data:\s*/, '').trim();
                     if (jsonStr === '[DONE]') continue;
                     try {
                         const parsed = JSON.parse(jsonStr);
+
+                        // Check for inline error from OpenWebUI
+                        if (parsed.error) {
+                            const errText = parsed.error?.message || parsed.error;
+                            console.error(`[${agentName}] Stream error:`, errText);
+                            const errorMsg = `⚠️ AI Error: ${errText}`;
+                            await db.editMessage(botMessage.id, errorMsg);
+                            io.emit('message_edited', { messageId: botMessage.id, newContent: errorMsg });
+                            return;
+                        }
+
                         const delta = parsed.choices?.[0]?.delta?.content || '';
                         const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || '';
                         
@@ -1283,7 +1379,9 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
                             fullResponse += delta;
                             io.emit('mimir_stream', { messageId: botMessage.id, chunk: delta, fullContent: fullResponse });
                         }
-                    } catch (e) { }
+                    } catch (e) {
+                        console.warn(`[${agentName}] Failed to parse SSE chunk:`, jsonStr.substring(0, 200));
+                    }
                 }
             }
 
@@ -1301,7 +1399,7 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
                 }
                 
             } else {
-                const fallback = '?? I got an empty response. Try asking again!';
+                const fallback = '⚠️ I got an empty response. The model may not be loaded in LM Studio.';
                 await db.editMessage(botMessage.id, fallback);
                 io.emit('message_edited', { messageId: botMessage.id, newContent: fallback });
             }

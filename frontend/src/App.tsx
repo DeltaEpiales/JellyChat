@@ -3017,8 +3017,8 @@ function App() {
                                                                     className="w-6 h-6 shrink-0 rounded-full bg-theme/20 text-theme-text/80 flex items-center justify-center text-xs font-bold cursor-pointer hover:bg-theme/40 bouncy-hover overflow-hidden border border-theme/20"
                                                                 >
                                                                     {(() => {
-                                                                        if (msg.senderId === 'mimir') {
-                                                                            return <img src="/ai_pfp.gif" alt="Mimir" className="w-full h-full object-cover" />;
+                                                                        if (!msg.senderId.includes('.') && msg.senderId !== 'system') {
+                                                                            return <img src="/ai_pfp.gif" alt="AI" className="w-full h-full object-cover" />;
                                                                         }
                                                                         const assignment = assignments.find(a => a.ip === msg.senderId);
                                                                         const profile = assignment ? profiles.find(p => p.id === assignment.profileId) : null;
@@ -3137,7 +3137,7 @@ function App() {
                                                                         : 'glass-card text-white/90 rounded-[2rem] rounded-tl-sm'}
                           `}>
                                                                     <div className="markdown-content relative">
-                                                                        {msg.senderId === 'mimir' && !msg.content ? (
+                                                                        {(!msg.senderId.includes('.') && msg.senderId !== 'system') && !msg.content ? (
                                                                             <div className="flex items-center gap-1.5 py-2 px-1">
                                                                                 <div className="w-2 h-2 bg-theme-text rounded-full animate-bounce shadow-[0_0_10px_var(--color-theme-glow)]" style={{ animationDelay: '0ms' }} />
                                                                                 <div className="w-2 h-2 bg-theme-alt rounded-full animate-bounce shadow-[0_0_10px_var(--color-theme-alt-glow)]" style={{ animationDelay: '150ms' }} />
@@ -3701,7 +3701,7 @@ function App() {
                                             </div>
                                             <div className="text-sm text-white/80 line-clamp-3 prose prose-invert max-w-none break-words">
                                                 <div className="markdown-content relative">
-                                                    {msg.senderId === 'mimir' && !msg.content ? (
+                                                    {(!msg.senderId.includes('.') && msg.senderId !== 'system') && !msg.content ? (
                                                         <div className="flex items-center gap-1.5 py-2 px-1">
                                                             <div className="w-2 h-2 bg-theme-text rounded-full animate-bounce shadow-[0_0_10px_var(--color-theme-glow)]" style={{ animationDelay: '0ms' }} />
                                                             <div className="w-2 h-2 bg-theme-alt rounded-full animate-bounce shadow-[0_0_10px_var(--color-theme-alt-glow)]" style={{ animationDelay: '150ms' }} />

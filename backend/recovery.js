@@ -292,7 +292,7 @@ async function handleAgentMessage(socket, triggerMessage, channelId, recipientId
         }
 
         const chatHistory = contextMessages.map(m => ({
-            role: m.senderId === 'mimir' ? 'assistant' : 'user',
+            role: (!m.senderId.includes('.') && m.senderId !== 'system') ? 'assistant' : 'user',
             content: `${m.senderName}: ${m.content}`
         }));
 

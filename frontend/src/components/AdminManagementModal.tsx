@@ -33,12 +33,10 @@ export function AdminManagementModal({ onClose, peers, channels }: Props) {
         openwebui_url: '',
         openwebui_api_key: '',
         openwebui_model: '',
-        agent1_name: '',
-        agent1_model: '',
-        agent2_name: '',
-        agent2_model: '',
         comfyui_url: ''
     });
+
+    const [aiAgents, setAiAgents] = useState<{id: string, name: string, model: string}[]>([]);
 
     const [availableModels, setAvailableModels] = useState<{id: string, name: string}[]>([]);
 
@@ -60,12 +58,21 @@ export function AdminManagementModal({ onClose, peers, channels }: Props) {
                 openwebui_url: settingsData.openwebui_url || '',
                 openwebui_api_key: settingsData.openwebui_api_key || '',
                 openwebui_model: settingsData.openwebui_model || '',
-                agent1_name: settingsData.agent1_name || 'Mimir',
-                agent1_model: settingsData.agent1_model || '',
-                agent2_name: settingsData.agent2_name || 'Jarvis',
-                agent2_model: settingsData.agent2_model || '',
                 comfyui_url: settingsData.comfyui_url || ''
             });
+
+            try {
+                if (settingsData.ai_agents) {
+                    setAiAgents(JSON.parse(settingsData.ai_agents));
+                } else {
+                    setAiAgents([
+                        { id: 'agent_1', name: settingsData.agent1_name || 'Mimir', model: settingsData.agent1_model || '' },
+                        { id: 'agent_2', name: settingsData.agent2_name || 'Jarvis', model: settingsData.agent2_model || '' }
+                    ]);
+                }
+            } catch(e) {
+                console.error("Failed to parse agents", e);
+            }
 
             // Fetch models from our backend proxy
             try {
@@ -164,6 +171,23 @@ export function AdminManagementModal({ onClose, peers, channels }: Props) {
             });
         } catch (e) {
             console.error('Failed to save AI setting', e);
+        }
+    };
+
+    const handleSaveAiAgents = async (agents: {id: string, name: string, model: string}[]) => {
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'ai_agents', value: JSON.stringify(agents) })
+            });
+            // Also save individual agent settings for backward compatibility
+            agents.forEach((agent, idx) => {
+                handleSaveAiSetting(`agent${idx + 1}_name`, agent.name);
+                handleSaveAiSetting(`agent${idx + 1}_model`, agent.model);
+            });
+        } catch (e) {
+            console.error('Failed to save AI agents', e);
         }
     };
 
@@ -467,79 +491,69 @@ export function AdminManagementModal({ onClose, peers, channels }: Props) {
                                         Multi-Agent Configuration
                                     </h3>
                                     
-                                    {/* Agent 1 */}
-                                    <div className="border border-white/10 p-4 rounded-3xl glass-card relative overflow-hidden">
-                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-theme"></div>
-                                        <h4 className="text-sm font-bold text-white mb-3">Agent 1 (Primary)</h4>
-                                        <div className="space-y-3">
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1">Trigger Name (e.g. Mimir)</label>
-                                                <input 
-                                                    type="text"
-                                                    value={aiSettings.agent1_name}
-                                                    onChange={e => {
-                                                        setAiSettings({...aiSettings, agent1_name: e.target.value});
-                                                        handleSaveAiSetting('agent1_name', e.target.value);
+                                    {aiAgents.map((agent, idx) => (
+                                        <div key={agent.id} className="border border-white/10 p-4 rounded-3xl glass-card relative overflow-hidden mt-4">
+                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-theme"></div>
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h4 className="text-sm font-bold text-white">Agent {idx + 1}</h4>
+                                                <button 
+                                                    onClick={() => {
+                                                        const newAgents = aiAgents.filter(a => a.id !== agent.id);
+                                                        setAiAgents(newAgents);
+                                                        handleSaveAiAgents(newAgents);
                                                     }}
-                                                    placeholder="Mimir"
-                                                    className="w-full glass-card border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:border-theme bouncy-hover"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1">Specific Model</label>
-                                                <select 
-                                                    value={aiSettings.agent1_model}
-                                                    onChange={e => {
-                                                        setAiSettings({...aiSettings, agent1_model: e.target.value});
-                                                        handleSaveAiSetting('agent1_model', e.target.value);
-                                                    }}
-                                                    className="w-full glass-card border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:border-theme appearance-none bouncy-hover"
+                                                    className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-full transition-colors"
                                                 >
-                                                    <option value="" className="bg-slate-900 text-white">Use Default Model</option>
-                                                    {availableModels.map(m => (
-                                                        <option key={m.id} value={m.id} className="bg-slate-900 text-white">{m.name || m.id}</option>
-                                                    ))}
-                                                </select>
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1">Trigger Name</label>
+                                                    <input 
+                                                        type="text"
+                                                        value={agent.name}
+                                                        onChange={e => {
+                                                            const newAgents = aiAgents.map(a => a.id === agent.id ? {...a, name: e.target.value} : a);
+                                                            setAiAgents(newAgents);
+                                                            handleSaveAiAgents(newAgents);
+                                                        }}
+                                                        placeholder="Name"
+                                                        className="w-full glass-card border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:border-theme bouncy-hover"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1">Specific Model</label>
+                                                    <select 
+                                                        value={agent.model}
+                                                        onChange={e => {
+                                                            const newAgents = aiAgents.map(a => a.id === agent.id ? {...a, model: e.target.value} : a);
+                                                            setAiAgents(newAgents);
+                                                            handleSaveAiAgents(newAgents);
+                                                        }}
+                                                        className="w-full glass-card border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:border-theme appearance-none bouncy-hover"
+                                                    >
+                                                        <option value="" className="bg-slate-900 text-white">Use Default Model</option>
+                                                        {availableModels.map(m => (
+                                                            <option key={m.id} value={m.id} className="bg-slate-900 text-white">{m.name || m.id}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-
-                                    {/* Agent 2 */}
-                                    <div className="border border-white/10 p-4 rounded-3xl glass-card relative overflow-hidden">
-                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-theme-alt"></div>
-                                        <h4 className="text-sm font-bold text-white mb-3">Agent 2 (Secondary)</h4>
-                                        <div className="space-y-3">
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1">Trigger Name (e.g. Jarvis)</label>
-                                                <input 
-                                                    type="text"
-                                                    value={aiSettings.agent2_name}
-                                                    onChange={e => {
-                                                        setAiSettings({...aiSettings, agent2_name: e.target.value});
-                                                        handleSaveAiSetting('agent2_name', e.target.value);
-                                                    }}
-                                                    placeholder="Jarvis"
-                                                    className="w-full glass-card border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:border-theme bouncy-hover"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1">Specific Model</label>
-                                                <select 
-                                                    value={aiSettings.agent2_model}
-                                                    onChange={e => {
-                                                        setAiSettings({...aiSettings, agent2_model: e.target.value});
-                                                        handleSaveAiSetting('agent2_model', e.target.value);
-                                                    }}
-                                                    className="w-full glass-card border border-white/10 rounded-full px-3 py-2 text-sm text-white focus:outline-none focus:border-theme appearance-none bouncy-hover"
-                                                >
-                                                    <option value="" className="bg-slate-900 text-white">Use Default Model</option>
-                                                    {availableModels.map(m => (
-                                                        <option key={m.id} value={m.id} className="bg-slate-900 text-white">{m.name || m.id}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    ))}
+                                    
+                                    <button
+                                        onClick={() => {
+                                            const newAgents = [...aiAgents, { id: 'agent_' + Date.now(), name: 'NewAgent', model: '' }];
+                                            setAiAgents(newAgents);
+                                            handleSaveAiAgents(newAgents);
+                                        }}
+                                        className="w-full mt-4 py-3 rounded-full border border-dashed border-white/20 text-white/50 hover:text-white hover:border-white/50 transition-colors flex items-center justify-center gap-2 text-sm font-bold"
+                                    >
+                                        <Plus size={16} />
+                                        Add Agent
+                                    </button>
                                 </div>
 
                                 <div className="p-5 rounded-3xl border border-white/5 glass-card space-y-4 shadow-lg">
